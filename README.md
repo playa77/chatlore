@@ -1,140 +1,122 @@
-# ChatLore
+# ChatLore — playa77 fork
 
 > All your AI conversations, one graph, one chat.
 
-[![CI](https://github.com/cl0ver012/chatlore/actions/workflows/ci.yml/badge.svg)](https://github.com/cl0ver012/chatlore/actions/workflows/ci.yml)
+[![CI](https://github.com/playa77/chatlore/actions/workflows/ci.yml/badge.svg)](https://github.com/playa77/chatlore/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
 
-**Status: pre-alpha.** Importing and search work today: ChatGPT, Claude, and
-Gemini exports, Claude Code and Codex sessions, notes, documents (PDF, Word,
-Excel, and more), email, and
-archives of any of them land in a local library and a SQLite graph store you can
-search from the terminal by words, by meaning, or both. A language model turns
-them into a knowledge graph of entities, relationships, and topics that you can
-browse and search, with facts that each lead back to the message that said
-them, and you can ask questions and get answers with sources, in
-the terminal, over a REST API, or in a web interface where the knowledge graph
-is a way into your chat history. AI
-assistants such as Claude and Cursor can search it too, through an MCP server.
-A library moves between machines as one archive file. The roadmap below shows
-what comes next.
+This fork of [cl0ver012/chatlore](https://github.com/cl0ver012/chatlore) imports
+AI conversations and documents into a local library, builds a knowledge graph,
+and provides search and chat with sources through a CLI, web interface and MCP.
+It is pre-alpha.
 
-## Try it
+The current phase runs on your own machine with SQLite and **two OpenRouter
+keys**, using `z-ai/glm-5.3-flash` for chat/extraction and
+`openai/text-embedding-3-small` for embeddings. No local model runs with the
+configuration below. Library files stay on disk; model processing sends text
+to OpenRouter and its serving providers. See [model settings](docs/models.md).
 
-With [uv](https://docs.astral.sh/uv/) installed, one command downloads ChatLore
-and opens it on a made-up library:
+## Install this fork
+
+Requirements: Git and [uv](https://docs.astral.sh/uv/). uv manages the project's
+Python version. Run these commands in a terminal:
 
 ```bash
-uvx chatlore demo
-```
-
-The demo holds 32 invented conversations with their knowledge graph already
-built, so search, topics, and the graph explorer work at once, with no export
-and no API key. It lives in `~/.chatlore-demo`, apart from your own library.
-Asking questions also needs a model key; see [docs/models.md](docs/models.md).
-
-## Use it on your own conversations
-
-```bash
-uv tool install chatlore                             # or: pipx install chatlore
-chatlore import path/to/chatgpt-export.zip ~/Documents/notes   # exports, documents, archives
-chatlore search "postgres index"
-chatlore process                                     # chunk and embed, local model
-chatlore search "why was my query slow" --semantic
-chatlore search "slow postgres query" --hybrid       # words and meaning together
-chatlore extract --limit 50                          # entities, needs a model key
-chatlore topics                                      # what the conversations are about
-chatlore entity "postgres"                           # one entity and where it came up
-chatlore facts "backups"                             # decisions and findings, with sources
-chatlore ask "why was my query slow?"                # an answer with sources
-chatlore serve                                       # web UI and API on http://127.0.0.1:8000
-chatlore mcp                                         # tools for Claude, Cursor, and other MCP clients
-chatlore export chatlore.zip                         # the whole library in one file
-chatlore stats
-```
-
-The library is kept in `~/.chatlore`; `--home <folder>` or `CHATLORE_HOME` picks another.
-The web interface can do the same without the terminal: after `chatlore serve`,
-**Your data** uploads an export, builds everything from it, and downloads the
-library again.
-
-The source is detected from the file. Importing is idempotent, so re-running it
-after a fresh export only adds what changed. How to get each export, what is
-kept, and the known limits are in [docs/importers.md](docs/importers.md).
-Extraction and chat use any OpenAI-compatible model, OpenRouter by default;
-see [docs/models.md](docs/models.md). The knowledge graph is described in
-[docs/extraction.md](docs/extraction.md), chat and the API in
-[docs/chat.md](docs/chat.md), the web interface in [docs/web.md](docs/web.md),
-setting up assistants over MCP in [docs/mcp.md](docs/mcp.md), archives and
-Markdown export in [docs/export.md](docs/export.md), hosting the demo in
-[docs/hosting.md](docs/hosting.md), and keeping the graph in FalkorDB instead of
-SQLite in [docs/falkordb.md](docs/falkordb.md).
-
-## What ChatLore will do
-
-ChatLore is a local-first, open-source graph knowledge base built from your own
-conversations and documents.
-
-- **Import** your history from ChatGPT, Claude, and Gemini exports, Claude Code
-  and Codex CLI sessions, Markdown folders, notes, and documents.
-- **Link** everything into one graph of conversations, entities, topics, and
-  facts, with every extracted fact pointing back to the message it came from.
-- **Search** across all of it with full-text, vector, and graph retrieval
-  combined.
-- **Chat** in one place with citations, using any model provider you like:
-  OpenAI-compatible endpoints (including Ollama, vLLM, and Qwen), Anthropic,
-  or Gemini.
-- **Integrate** with the tools you already use through an MCP server, a REST
-  API, and a CLI.
-
-Your data stays in a folder you own. Import and search work without any LLM;
-extraction is an optional enrichment you can re-run with a better model later.
-
-## Roadmap
-
-| Milestone | Deliverable | Status |
-|---|---|---|
-| M0 | Repository skeleton and CI | done |
-| M1 | Core data model and embedded SQLite graph store | done |
-| M2 | Importers: ChatGPT, Claude, Gemini, Markdown, notes | done |
-| M3 | Chunking, embeddings, hybrid search | done |
-| M4 | Entity, topic, and fact extraction with provenance | done |
-| M5 | REST API with streaming chat | done |
-| M6 | Web UI: conversations, graph explorer, chat | done: Explore your chats through the graph, light and dark themes |
-| M7 | MCP server for Claude Desktop, Claude Code, Cursor, ChatGPT | done; ChatGPT through /mcp once the demo is online |
-| M8 | Easy to try: PyPI package, demo library, export and import | done, v0.1.0 |
-| M9 | Hosted demo | public mode, MCP over HTTP, Docker image, and Hugging Face Space deployment done; going live next |
-| M10 | FalkorDB backend | done |
-| M11 | Your own data in the web interface: upload, export, private visitor libraries | done |
-| M12 | Import anything: documents, email, data files, folders, and archives | done |
-
-## Development setup
-
-Requirements: [uv](https://docs.astral.sh/uv/) and Git. uv installs the pinned
-Python version for you.
-
-```bash
-git clone https://github.com/cl0ver012/chatlore.git
+git clone https://github.com/playa77/chatlore.git
 cd chatlore
-uv sync
-uv run chatlore --help
+uv sync --locked
 ```
 
-Checks that CI runs on every pull request:
+Use `uv run --locked chatlore` from this checkout for the commands below. Bare
+package-name installs from PyPI install the upstream distribution, not this fork.
+There is no separate fork PyPI release configured by these instructions.
+
+## Configure the two keys
+
+Copy the template once, without overwriting an existing configuration:
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
-uv run pytest
+cp .env.example .env
 ```
 
-## Contributing
+On Windows PowerShell, use `Copy-Item .env.example .env` instead. Edit `.env`
+locally and fill in `CHATLORE_LLM_API_KEY` and `CHATLORE_EMBEDDING_API_KEY` with
+two separate OpenRouter keys. Keep the provider, endpoint and model settings
+from the template. `.env` is ignored by Git; never commit real keys.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit conventions,
-and the pull request checklist.
+```bash
+uv run --locked chatlore doctor
+```
+
+Check that it reports the two models above, embeddings via `openrouter`, and
+both keys set. Shell environment variables override `.env`. The CLI loads the
+nearest `.env` in or above its working directory, so keep launching from this
+checkout. Without the template, inherited code defaults still select local
+FastEmbed embeddings and a different chat model.
+
+## Import, search and ask
+
+```bash
+uv run --locked chatlore import path/to/your-export.zip
+uv run --locked chatlore search "postgres index"             # local word search
+uv run --locked chatlore process                             # paid remote embeddings
+uv run --locked chatlore search "why was my query slow" --semantic
+uv run --locked chatlore search "slow postgres query" --hybrid
+uv run --locked chatlore extract --limit 10 --workers 1       # paid graph enrichment
+uv run --locked chatlore topics
+uv run --locked chatlore entity "postgres"
+uv run --locked chatlore facts "backups"
+uv run --locked chatlore ask "why was my query slow?"         # paid retrieval/chat
+uv run --locked chatlore serve --host 127.0.0.1               # http://127.0.0.1:8000
+```
+
+`--limit` limits new extraction chunks, not the cost of all enrichment stages.
+Set spending limits on both OpenRouter keys. Semantic and hybrid queries can
+make embedding requests. Web uploads automatically import, embed and enrich;
+the CLI separates these steps so you can start with word search alone.
+
+The library defaults to `~/.chatlore`; put `--home <folder>` before a command
+or set `CHATLORE_HOME` to change it. Importing the same data again updates changed
+conversations. Back up with `uv run --locked chatlore export chatlore.zip`.
+If migrating vectors from another model, back up first and run
+`uv run --locked chatlore process --reembed` to rebuild them at provider cost.
+
+## Guides
+
+- [Models, credentials and data flow](docs/models.md)
+- [Import formats and processing](docs/importers.md)
+- [Graph extraction and caching](docs/extraction.md)
+- [Chat and REST API](docs/chat.md)
+- [Web interface](docs/web.md)
+- [MCP for local assistants](docs/mcp.md)
+- [Backups and Markdown export](docs/export.md)
+- [Security review and deferred work](docs/security-review.md)
+- [Inherited hosting/demo infrastructure](docs/hosting.md)
+- [Optional FalkorDB backend](docs/falkordb.md)
+- [Development](CONTRIBUTING.md) and [release status](docs/releasing.md)
+
+The bundled demo uses an inherited local embedding model. `chatlore demo` and
+the Dockerfile are not the remote-only onboarding path. Public hosting and
+additional security hardening are deferred; the current target is a local CLI
+and loopback-bound server.
+
+## Development and updates
+
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for the full CI environment. To update
+an existing checkout on `main`, preserve your work and local `.env`, then run:
+
+```bash
+git pull --ff-only
+uv sync --locked
+uv run --locked chatlore doctor
+```
+
+Check [CHANGELOG.md](CHANGELOG.md) before processing an existing library after
+an update. Implemented features include import, word/vector/graph search,
+entity and fact extraction, topic reports, cited chat, a web graph explorer,
+MCP and archives. A hosted release is not part of this phase.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Original copyright and author attribution are retained.

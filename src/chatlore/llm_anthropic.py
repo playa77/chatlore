@@ -1,7 +1,7 @@
 """Claude through Anthropic's own API, with the official SDK.
 
 Chosen with ``CHATLORE_LLM_PROVIDER=anthropic`` and installed with
-``pip install 'chatlore[anthropic]'``. It has the same shape as the
+``uv sync --locked --extra anthropic``. It has the same shape as the
 OpenAI-compatible client, so extraction and chat do not know which one runs.
 """
 

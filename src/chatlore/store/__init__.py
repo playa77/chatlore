@@ -153,6 +153,7 @@ def _falkordb() -> FalkorDBStore:
         from chatlore.store.falkordb import FalkorDBStore
     except ImportError as error:
         raise RuntimeError(
-            f"{STORE_ENV}=falkordb needs the FalkorDB client: pip install 'chatlore[falkordb]'"
+            f"{STORE_ENV}=falkordb needs the FalkorDB client: "
+            "from this fork's checkout run uv sync --locked --extra falkordb"
         ) from error
     return FalkorDBStore(*_falkordb_settings())

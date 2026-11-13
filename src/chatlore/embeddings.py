@@ -1,11 +1,12 @@
 """Embedding models and a disk cache for their output.
 
-The default embedder runs locally through fastembed (ONNX, no PyTorch), so
-semantic search works offline and no text leaves the machine. Anything with the
-``Embedder`` shape can replace it.
+The fork's template selects remote OpenRouter embeddings with a dedicated key.
+Without that configuration, inherited defaults select local FastEmbed (ONNX).
+Anything with the ``Embedder`` shape can replace either client.
 
-Vectors are cached by model name and text hash in a small SQLite file. The
-graph database can be dropped and rebuilt without paying for embeddings again.
+Passage vectors are cached by model name and text hash in SQLite, so matching
+cached inputs can be reused during a graph rebuild. Query calls are not cached
+here; missing passage entries still require embedding work.
 """
 
 from __future__ import annotations

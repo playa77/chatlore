@@ -95,7 +95,7 @@ def test_a_missing_sdk_says_how_to_install_it(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
     monkeypatch.setitem(sys.modules, "chatlore.llm_anthropic", None)
 
-    with pytest.raises(LLMError, match=r"pip install 'chatlore\[anthropic\]'"):
+    with pytest.raises(LLMError, match="uv sync --locked --extra anthropic"):
         make_llm()
 
 

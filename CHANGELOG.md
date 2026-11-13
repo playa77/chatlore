@@ -5,7 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Earlier upstream feature/release descriptions below are historical. Their package
+install examples, local-model behavior and benchmark results are not current fork
+setup instructions; use [README.md](README.md) and [docs/models.md](docs/models.md).
+
 ## [Unreleased]
+
+### Changed
+
+- Rewrite installation and guides for the playa77 fork's local-only, two-key
+  OpenRouter setup. Correct MCP launch instructions, remote data/cost statements,
+  fork links and inherited demo/release status; remove unverified cost promises.
 
 ### Added
 

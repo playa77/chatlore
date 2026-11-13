@@ -118,13 +118,13 @@ class _Allowance:
                 return (
                     f"This demo answers {self.limits.per_visitor_hour} questions an hour for "
                     "each visitor. Try again later, or install ChatLore to ask your own "
-                    "conversations: pip install chatlore"
+                    "conversations: https://github.com/playa77/chatlore#install-this-fork"
                 )
             if self._today >= self.limits.per_day:
                 return (
                     "This demo has answered all the questions it can today. Try again "
                     "tomorrow, or install ChatLore to ask your own conversations: "
-                    "pip install chatlore"
+                    "https://github.com/playa77/chatlore#install-this-fork"
                 )
             asked.append(now)
             self._today += 1

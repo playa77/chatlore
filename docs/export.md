@@ -1,9 +1,9 @@
 # Moving and exporting a library
 
 ```bash
-chatlore export chatlore.zip                 # everything, to import elsewhere
-chatlore import chatlore.zip                 # on the other machine, or into another library
-chatlore export conversations/ --markdown    # one readable file per conversation
+uv run --locked chatlore export chatlore.zip                 # everything, to import elsewhere
+uv run --locked chatlore import chatlore.zip                 # on the other machine, or into another library
+uv run --locked chatlore export conversations/ --markdown    # one readable file per conversation
 ```
 
 ## Archives
@@ -15,12 +15,18 @@ chatlore export conversations/ --markdown    # one readable file per conversatio
 - the cached embeddings and model answers.
 
 `chatlore import <file>` recognises an archive and restores all of it. The graph
-is back at once, with no model calls and no API key, and `chatlore process`
-then takes the embeddings from the archive instead of computing them. The
-database itself is not in the archive, since it is rebuilt from these parts.
+is restored without model calls or keys when using CLI import. A later
+`process` can reuse matching cached vectors, but configured remote embeddings
+still require their key and uncached passages can incur charges. Web uploads
+also run processing/enrichment automatically. The graph database itself is not
+in the archive, since it is rebuilt from these parts.
 
 Use it to move a library to another machine, to keep a backup, or to share a
-library with someone. Remember that an archive holds your conversations in full.
+library with someone. Archives contain private plaintext conversations and
+caches. Share them only intentionally and import trusted archives; see [security-review.md](security-review.md).
+Use the same embedding model on both machines. Archives do not reliably carry
+all runtime model settings; use the matching `.env` and rebuild vectors before
+retrieval if the source model differs.
 
 Importing works like any other import:
 
@@ -29,8 +35,8 @@ Importing works like any other import:
   are kept, and a conversation in both is replaced by the archive's copy only
   when the two differ.
 - The caches are merged, so a later `chatlore extract` with the same model reads
-  nothing twice. With another model, `chatlore extract` rebuilds the entity
-  graph from that model's answers instead.
+  cached answers where model, prompt version and input keys match. With another
+  model, `chatlore extract` rebuilds the entity graph from that model's answers.
 - `--dry-run` counts what the archive holds without writing anything.
 
 An archive is a zip holding `manifest.json`, `conversations.jsonl` with one

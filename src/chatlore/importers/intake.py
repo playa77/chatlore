@@ -9,8 +9,9 @@ Every other file ChatLore can read becomes a note
 (``chatlore.importers.documents``). The rest is skipped, and each skipped file
 is listed with the reason, so nothing disappears silently.
 
-Unpacking is limited in total size and file count and never writes outside its
-folder, so a hostile archive can neither fill the disk nor overwrite anything.
+Ordinary unpacking checks paths, total size, file count and nesting depth.
+These checks do not cover every archive/document path; see docs/security-review.md
+before accepting untrusted files.
 """
 
 from __future__ import annotations

@@ -4,7 +4,8 @@
 Claude Code, Cursor, and other MCP clients start local servers. The assistant can
 search your past conversations, gather the passages that answer a question, look
 up entities and topics, and read a conversation. It answers with its own model,
-so no model key is needed here; only the embedding model runs, locally.
+so no ChatLore LLM key is needed here. With the fork's OpenRouter configuration,
+retrieval sends queries to a remote embedding model using its dedicated key.
 
 Every tool is read-only and opens the store for that one call, since tools run
 on worker threads and a SQLite connection must stay on the thread that opened it.

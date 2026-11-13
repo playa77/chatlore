@@ -1,49 +1,46 @@
-# Releasing
+# Release status for this fork
 
-A release is a version tag. Pushing `v<version>` runs the Release workflow
-(`.github/workflows/release.yml`): it builds the wheel and source archive,
-checks that their version matches the tag, runs the demo from the built wheel,
-publishes both files to PyPI, and creates a GitHub release with them.
+Install this fork from its Git checkout as described in the [README](../README.md).
+The package is still named `chatlore`, versioned in `pyproject.toml` and
+`src/chatlore/__init__.py`. The name alone does not identify this fork on PyPI.
+No separate PyPI distribution or publisher for `playa77/chatlore` is established
+by the repository's installation instructions.
 
-## Once: let GitHub publish to PyPI
+## Existing workflow behavior
 
-Publishing uses PyPI trusted publishing, so no PyPI token is stored anywhere.
+The inherited `.github/workflows/release.yml` triggers on `v*` tags. It builds a
+wheel/source archive, checks the package version against the tag, runs the
+inherited demo, then attempts trusted publishing to the PyPI project `chatlore`
+through the GitHub environment `pypi`. A dependent job creates a GitHub release.
+PyPI authorizes a publisher using its configured repository/workflow identity;
+forking the repository does not inherit the upstream owner's publishing rights.
 
-1. On PyPI, under Your account, Publishing, add a pending publisher (it becomes
-   a normal one after the first release):
-   - PyPI project name: `chatlore`
-   - Owner: `cl0ver012`
-   - Repository name: `chatlore`
-   - Workflow name: `release.yml`
-   - Environment name: `pypi`
-2. On GitHub, under Settings, Environments, create an environment named `pypi`.
-   Adding yourself as a required reviewer makes every release wait for your
-   approval before anything is published.
+The separate Deploy workflow also responds to version tags when `HF_SPACE` is
+configured. Release tags can therefore trigger more than a build. Do not use
+the old upstream tag-and-publish procedure as a local installation step.
 
-## Every release
+## Build locally without publishing
 
-1. On a branch, set the version in `pyproject.toml` and
-   `src/chatlore/__init__.py`, then run `uv lock` so the lockfile records it.
-2. In `CHANGELOG.md`, rename `Unreleased` to the version and date, and start a
-   new empty `Unreleased` section above it.
-3. Open a pull request titled `chore(release): <version>` and merge it.
-4. Tag the merge commit on `main` and push the tag:
-
-   ```bash
-   git switch main
-   git pull
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-5. Approve the `pypi` environment in the workflow run if it asks.
-
-Then check that it installs from PyPI:
+From this checkout:
 
 ```bash
-uvx chatlore@0.1.0 --version
-uvx chatlore demo
+uv build --out-dir dist
 ```
 
-A version number can be published only once. If something is wrong after
-publishing, fix it and release the next patch version.
+This builds this fork's files. It does not publish them. To check an artifact,
+install the exact wheel into a separate test environment; do not test by
+requesting a bare package name from PyPI, which selects the upstream package.
+The bundled demo uses local embeddings, so it is not a remote-only acceptance
+test. Normal local checks are in [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+## Before a future release
+
+Choose and document the intended distribution name and publishing destination,
+configure trusted publishing for this fork, and revise the Release/Deploy
+workflows to match that decision. Decide whether a GitHub-only release is
+sufficient. Keep original copyright and author attribution.
+
+For a version change, update `pyproject.toml`, `src/chatlore/__init__.py`,
+`uv.lock` and `CHANGELOG.md` together. Validate the built package and its actual
+installation route before creating a release tag. Publishing and hosting are
+outside the current local-only phase; no release action is performed here.

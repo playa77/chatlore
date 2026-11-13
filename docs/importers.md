@@ -1,16 +1,18 @@
 # Importing your data
 
 ```bash
-chatlore import <path>...         # anything: files, folders, archives
-chatlore import <path> --source chatgpt
-chatlore import <path> --dry-run  # parse and report, write nothing
-chatlore stats                    # what the library holds
+uv run --locked chatlore import <path>...         # anything: files, folders, archives
+uv run --locked chatlore import <path> --source chatgpt
+uv run --locked chatlore import <path> --dry-run  # parse and report, write nothing
+uv run --locked chatlore stats                    # what the library holds
 ```
 
 Give it as many files, folders, and archives as you like, and it works out what
 each one is from its content: the export zip exactly as you downloaded it, the
 extracted folder, a folder of documents, or all of them at once. The web
 interface does the same under **Your data**, for files or a whole folder.
+CLI import makes no model calls; web uploads additionally run paid processing
+and enrichment. Configure both keys before using the web upload flow.
 Importing is idempotent: run it again after a fresh export and only new or
 changed conversations are written.
 
@@ -39,8 +41,11 @@ knowledge graph and caches along; see [export.md](export.md).
 zip of folders of zips works, and so does a Google Takeout split into several
 zips. zip, tar, and gz need nothing extra. 7z and rar are unpacked with
 `bsdtar`, which comes with Windows 10 and later and with macOS; on Linux,
-install `libarchive-tools`. Together they may unpack to at most 2 GB, 100,000
-files, and nothing is ever written outside the folder they are unpacked into.
+install `libarchive-tools` if those formats are needed. Ordinary unpacking
+checks target paths and reserves up to 2 GB and 100,000 files, with four levels
+of nested archives. These limits do not cover every document/archive path;
+see the [security review](security-review.md). Import trusted files and inspect
+folder symlinks, whose targets can be read outside the selected directory.
 
 **Chat exports** are found by their content, not their names or places. The
 other files of an export, such as ChatGPT's `chat.html`, which holds the same
@@ -62,20 +67,20 @@ like `.DS_Store`.
 ## Searching
 
 ```bash
-chatlore search "postgres index"          # every word must match, any order
-chatlore search "why was my query slow" --semantic   # match by meaning
-chatlore search "slow postgres query" --hybrid       # words, meaning, and entities together
-chatlore search "cat" --source claude     # limit to one source, repeatable
-chatlore search "cat" --limit 25
-chatlore index --rebuild                  # rebuild the database from the library
+uv run --locked chatlore search "postgres index"          # every word must match, any order
+uv run --locked chatlore search "why was my query slow" --semantic   # match by meaning
+uv run --locked chatlore search "slow postgres query" --hybrid       # words, meaning, and entities together
+uv run --locked chatlore search "cat" --source claude     # limit to one source, repeatable
+uv run --locked chatlore search "cat" --limit 25
+uv run --locked chatlore index --rebuild                  # rebuild the database from the library
 ```
 
 ## Processing
 
 ```bash
-chatlore process              # chunk, then embed; safe to repeat and to interrupt
-chatlore process --no-embed   # chunk only
-chatlore process --reembed    # drop all vectors first, needed after changing the model
+uv run --locked chatlore process              # chunk, then embed; safe to repeat and to interrupt
+uv run --locked chatlore process --no-embed   # chunk only
+uv run --locked chatlore process --reembed    # drop all vectors first, needed after changing the model
 ```
 
 Processing prepares the library for semantic search in two stages.
@@ -86,16 +91,16 @@ what you and the assistant wrote is chunked. Tool output and attachment dumps ar
 left out on purpose: they stay findable through full-text search, but embedding
 them would bury your actual conversations under scraped pages and JSON.
 
-**Embedding.** Every chunk gets a vector from a small model that runs on your own
-machine (`BAAI/bge-small-en-v1.5` through fastembed, about 130 MB, downloaded once
-into `~/.chatlore/cache/models`). Nothing is sent anywhere. Expect a few chunks per
-second on a laptop CPU, so a couple of thousand chunks take several minutes the
-first time. Set `CHATLORE_EMBEDDING_MODEL` to use another fastembed model, then
-run `chatlore process --reembed`.
+**Embedding.** With the fork's `.env.example` configuration, uncached chunks
+are sent to OpenRouter's `openai/text-embedding-3-small` using
+`CHATLORE_EMBEDDING_API_KEY`. No local model loads. Semantic and hybrid search
+also send query text for embedding when the library has vectors. See
+[models.md](models.md) for configuration, costs and inherited code defaults.
 
-Both stages only touch what changed. Vectors are also cached by text hash in
-`~/.chatlore/cache/embeddings.db`, so rebuilding the database with
-`chatlore index --rebuild` does not cost embedding time again.
+Chunking updates changed messages. Vectors are cached by model name and text
+hash in `~/.chatlore/cache/embeddings.db`, allowing a rebuild to reuse matching
+cached passages. Missing cache entries still require remote calls. A model
+change requires a backup and `process --reembed`, with potential new charges.
 
 Plain search matches words, with accents and punctuation ignored. `--semantic`
 matches meaning instead, using the embeddings from `chatlore process`, and shows a
@@ -163,8 +168,8 @@ Limitations you should know about:
 ## Claude Code and the Codex CLI
 
 ```bash
-chatlore import ~/.claude/projects        # every Claude Code session
-chatlore import ~/.codex/sessions         # every Codex CLI session
+uv run --locked chatlore import ~/.claude/projects        # every Claude Code session
+uv run --locked chatlore import ~/.codex/sessions         # every Codex CLI session
 ```
 
 Coding agents keep each session as a JSON Lines file: Claude Code under
@@ -193,8 +198,8 @@ not read yet.
 ## Markdown and Obsidian
 
 ```bash
-chatlore import ~/Documents/my-vault
-chatlore import notes/meeting.md
+uv run --locked chatlore import ~/Documents/my-vault
+uv run --locked chatlore import notes/meeting.md
 ```
 
 Every `.md`, `.markdown`, and `.txt` file becomes one entry. The title comes
@@ -208,7 +213,7 @@ not create duplicates.
 ## Notes
 
 ```bash
-chatlore note "Ask Sam about the staging database" --title "Follow up"
+uv run --locked chatlore note "Ask Sam about the staging database" --title "Follow up"
 ```
 
 ## When a record is skipped

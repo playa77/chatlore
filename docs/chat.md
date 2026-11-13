@@ -1,8 +1,8 @@
 # Chat and the REST API
 
 ```bash
-chatlore ask "Can I run a 27B model on my RTX 4060?"   # answer with sources
-chatlore serve                                         # REST API on http://127.0.0.1:8000
+uv run --locked chatlore ask "Can I run a 27B model on my RTX 4060?"   # answer with sources
+uv run --locked chatlore serve                                         # REST API on http://127.0.0.1:8000
 ```
 
 ## Asking
@@ -19,14 +19,15 @@ Sources
   [2] Running 27B model on RTX 4060  claude | 2026-08-21
 ```
 
-It needs a model key (see [models.md](models.md)) and works best after
+It uses the LLM key and, when vectors exist, the separate query-embedding key
+(see [models.md](models.md)) and works best after
 `chatlore process`, which embeds the chunks, and `chatlore extract`, which builds
 the entities and topics. Without embeddings it still answers from the entities
 the question names, and says that `process` would help. `--sources` sets how
 many passages the answer may draw on; the default is 8.
 
-On a real Claude export with the default model, answers streamed in 7 to 9
-seconds and cost a fraction of a US cent each.
+Latency and cost depend on OpenRouter, the selected models and the source text.
+No live pricing or timing estimate is maintained for this fork.
 
 ### How the passages are chosen
 
@@ -42,14 +43,15 @@ The model also gets the summaries of the named entities, the newest facts about
 them with the date each was said, and the reports of their topics as background. It is told to answer only from the numbered passages, to
 cite every claim, to prefer the most recent passage when they disagree, and to
 say so when the passages do not hold the answer. When nothing matches at all,
-the model is not called.
+the LLM is not called.
 
 ## The REST API
 
 `chatlore serve` starts the API, with interactive documentation at `/docs` and
 the web interface at `/` (see [web.md](web.md)). It listens on `127.0.0.1` only,
-so nothing outside this machine can reach your library; `--host 0.0.0.0` changes
-that and prints a warning. `--port` sets the port, 8000 by default.
+which limits direct network access. It has no login; loopback binding is not
+an authentication guarantee (see [security-review.md](security-review.md)).
+Keep that binding for this phase. `--port` sets the port, 8000 by default.
 
 | Endpoint | What it returns |
 |---|---|
@@ -66,6 +68,11 @@ that and prints a warning. `--port` sets the port, 8000 by default.
 | `GET /graph` | Entities, the links among them, and their topics, for drawing; `entity`, `topic`, `limit` |
 | `GET /explore` | Entities and the chats they came up in, with the links among them; `entity`, `conversation`, `topic`, `source`, `since`, `until`; see [web.md](web.md) |
 | `GET /explore/timeline` | Chats started each month; `source` |
+| `GET /library` | Library ownership/upload settings and latest import status |
+| `POST /library/files?batch=...` | Stage a file in an upload batch; `X-ChatLore: 1` and `X-Filename` headers |
+| `POST /library/import` | Queue import, embedding and enrichment; optional `batch` parameter |
+| `GET /library/export` | Download archive or Markdown ZIP (`format=archive` or `markdown`) |
+| `DELETE /library` | Delete a visitor library in public mode; unavailable for the private server's main library |
 | `POST /chat` | A streamed answer, below |
 
 ### Streaming chat
@@ -81,8 +88,9 @@ each carrying JSON:
 | `done` | `{"cited": [2, 4], "found": true}`; `found` is false when nothing matched |
 | `error` | `{"message": "..."}` when the model could not answer |
 
-`sources` always comes first, then any number of `token` events, then `done` or
-`error`.
+After successful retrieval, `sources` comes first, followed by any `token`
+events and then `done` or `error`. An embedding/retrieval failure can emit an
+`error` before `sources`.
 
 ```bash
 curl -N -X POST http://127.0.0.1:8000/chat \
