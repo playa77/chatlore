@@ -8,6 +8,9 @@ import re
 import sys
 import tempfile
 import threading
+import time
+import urllib.error
+import urllib.request
 import webbrowser
 from collections import Counter
 from collections.abc import Iterator
@@ -28,6 +31,7 @@ from chatlore.archive import (
     ArchiveError,
     export_archive,
     export_markdown,
+    export_topics_markdown,
     import_archive,
     is_archive,
 )
@@ -43,7 +47,14 @@ from chatlore.importers import (
 )
 from chatlore.importers.intake import Intake, describe
 from chatlore.library import AddOutcome, Library
-from chatlore.llm import LLMError, llm_settings, make_llm
+from chatlore.llm import (
+    ChatMessage,
+    LLMAnswerError,
+    LLMError,
+    _is_openrouter,
+    llm_settings,
+    make_llm,
+)
 from chatlore.paths import HOME_ENV, default_home, demo_home, spaces_home
 from chatlore.pipeline import (
     EmbeddingModelMismatchError,
@@ -144,9 +155,29 @@ def main(
         os.environ[HOME_ENV] = str(home.expanduser())
 
 
+OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+"""The embeddings provider's endpoint, for its free key check."""
+
+
 @app.command()
-def doctor() -> None:
-    """Report the local environment ChatLore will run in."""
+def doctor(
+    probe: Annotated[
+        bool,
+        typer.Option(
+            "--probe",
+            help=(
+                "Also ask the configured model and embedding model for one tiny "
+                "answer; this spends a little credit, unlike the key checks, which "
+                "are free."
+            ),
+        ),
+    ] = False,
+) -> None:
+    """Report the local environment ChatLore will run in.
+
+    With a key configured, the provider is asked to confirm it, which costs
+    nothing. ``--probe`` goes further and sends one small request to each model.
+    """
     home = default_home()
     state = "exists" if home.exists() else "not created yet"
 
@@ -164,7 +195,109 @@ def doctor() -> None:
     )
     key = "API key set" if os.environ.get("CHATLORE_EMBEDDING_API_KEY") else "no API key"
     table.add_row("embeddings", f"{model} via {provider} ({key})")
+    try:
+        settings = llm_settings()
+    except LLMError:
+        settings = None
+    if settings is not None and (
+        check := _key_check(settings.provider, settings.base_url, settings.api_key)
+    ):
+        table.add_row("model key", check)
+    if provider == "openrouter" and (
+        check := _key_check(
+            "openai", OPENROUTER_API_BASE, os.environ.get("CHATLORE_EMBEDDING_API_KEY")
+        )
+    ):
+        table.add_row("embedding key", check)
+    if probe:
+        console.print(
+            "[yellow]Probing sends one tiny request to the model and, for remote "
+            "embeddings, one to the embedding model; it spends a little credit.[/yellow]"
+        )
+        table.add_row("model probe", _probe_model())
+        table.add_row("embedding probe", _probe_embeddings(home))
     console.print(table)
+
+
+def _url_status(url: str, key: str) -> int | None:
+    """GET ``url`` with the key as a bearer, returning the HTTP status.
+
+    ``None`` on connection trouble. One retry after a pause for throttling and
+    server errors, so a hiccup does not read as a bad key.
+    """
+    request = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {key}", "User-Agent": f"chatlore/{__version__}"}
+    )
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return int(response.status)
+        except urllib.error.HTTPError as error:
+            if error.code in (429, 500, 502, 503, 504) and attempt == 0:
+                time.sleep(1.5)
+                continue
+            return error.code
+        except urllib.error.URLError:
+            if attempt == 0:
+                time.sleep(1.5)
+                continue
+            return None
+    return None
+
+
+def _key_check(provider: str, base_url: str, key: str | None) -> str | None:
+    """Confirm a key with its provider's free key or models endpoint.
+
+    ``None`` when there is nothing to check: no key, or a provider without a
+    free check, where ``--probe`` is the way.
+    """
+    if not key or provider != "openai":
+        return None
+    suffix = "/key" if _is_openrouter(base_url) else "/models"
+    status = _url_status(base_url.rstrip("/") + suffix, key)
+    if status == 200:
+        return "valid"
+    if status in (401, 403):
+        return f"rejected (HTTP {status})"
+    if status is None:
+        return "could not check (no connection)"
+    return f"could not check (HTTP {status})"
+
+
+def _probe_model() -> str:
+    """One tiny model request; whatever it says, the answer is the report.
+
+    A cut-off answer still proves the key reaches the model and can pay: a
+    reasoning model may spend the probe's tiny budget thinking.
+    """
+    try:
+        llm = make_llm()
+    except LLMError as error:
+        return str(error)
+    try:
+        llm.complete([ChatMessage("user", "Reply with the single word ok.")], max_tokens=8)
+    except LLMAnswerError as error:
+        if "token limit" in str(error):
+            return "reached the model; the probe's small token budget cut it off"
+        return str(error)
+    except LLMError as error:
+        return str(error)
+    else:
+        return "answered"
+    finally:
+        llm.close()
+
+
+def _probe_embeddings(home: Path) -> str:
+    """One tiny embedding request, for a remote provider; a local one is not probed."""
+    provider = os.environ.get("CHATLORE_EMBEDDING_PROVIDER") or "fastembed"
+    if provider != "openrouter":
+        return "local model; not probed"
+    try:
+        make_embedder(home).embed_query("ok")
+    except EmbeddingError as error:
+        return str(error)
+    return "answered"
 
 
 def _describe_store(home: Path) -> str:
@@ -388,7 +521,12 @@ def export(
         raise typer.Exit(code=1)
     if markdown:
         written = export_markdown(Library(home), path)
-        console.print(f"Wrote {written} conversations as Markdown to {display_path(path)}")
+        with open_store(home) as graph:
+            topics = export_topics_markdown(graph, path)
+        message = f"Wrote {written} conversations as Markdown to {display_path(path)}"
+        if topics:
+            message += f", with {topics} topics in topics.md"
+        console.print(message)
         return
     if path.is_dir():
         console.print(
@@ -482,6 +620,8 @@ def process(
     ] = False,
 ) -> None:
     """Chunk the library and embed the chunks. Safe to run repeatedly and to interrupt."""
+    if embed:
+        _warn_missing_keys(embeddings=True)
     home = default_home()
     with open_store(home) as store:
         chunks = sync_chunks(store, Library(home))
@@ -539,6 +679,7 @@ def extract(
     Reads new chunks for entities, relationships, and facts, summarises entities, links
     duplicates, and writes topic reports. Safe to repeat and to interrupt.
     """
+    _warn_missing_keys(llm=True)
     home = default_home()
     with open_store(home) as store:
         if store.count_nodes(Label.CHUNK) == 0:
@@ -784,6 +925,7 @@ def ask(
     ] = MAX_SOURCES,
 ) -> None:
     """Answer a question from your conversations, citing the passages used."""
+    _warn_missing_keys(llm=True)
     home = default_home()
     with open_store(home) as store:
         if store.count_nodes(Label.CHUNK) == 0:
@@ -917,6 +1059,7 @@ def serve(
     The web interface can upload exports into the library and download it. On a
     public server, --uploads gives each visitor who uploads a private library.
     """
+    _warn_missing_keys(llm=True, embeddings=True)
     import uvicorn  # loaded here so other commands start without the web stack
 
     from chatlore.api import create_app
@@ -1065,6 +1208,38 @@ def _has_llm_key() -> bool:
     return settings.api_key is not None or settings.key_env is None
 
 
+def _warn_missing_keys(llm: bool = False, embeddings: bool = False) -> None:
+    """A yellow note when a paid step runs without its key, before it fails or falls back.
+
+    A missing embedding key is not always an error: without one the inherited
+    local FastEmbed default still works, so the note says what is used instead.
+    """
+    if llm:
+        try:
+            settings = llm_settings()
+        except LLMError:
+            settings = None
+        if settings is not None and settings.api_key is None and settings.key_env is not None:
+            console.print(
+                "[yellow]No model API key set; extraction and chat need one "
+                f"(set CHATLORE_LLM_API_KEY or {settings.key_env}). See docs/models.md.[/yellow]"
+            )
+    if embeddings:
+        provider = os.environ.get("CHATLORE_EMBEDDING_PROVIDER") or "fastembed"
+        key = os.environ.get("CHATLORE_EMBEDDING_API_KEY")
+        if provider == "openrouter" and not key:
+            console.print(
+                "[yellow]No embedding API key set; remote embeddings need "
+                "CHATLORE_EMBEDDING_API_KEY.[/yellow]"
+            )
+        elif provider == "fastembed" and not key:
+            console.print(
+                "[yellow]No embedding API key set; using the local FastEmbed default "
+                "(BAAI/bge-small-en-v1.5). For the fork's remote setup set "
+                "CHATLORE_EMBEDDING_PROVIDER=openrouter and CHATLORE_EMBEDDING_API_KEY.[/yellow]"
+            )
+
+
 def _progress() -> Progress:
     return Progress(
         TextColumn("{task.description}"),
@@ -1096,6 +1271,8 @@ def search(
     """Search every imported message, by words, by meaning, or both."""
     if semantic and hybrid:
         raise typer.BadParameter("use either --semantic or --hybrid, not both")
+    if semantic or hybrid:
+        _warn_missing_keys(embeddings=True)
     home = default_home()
     with open_store(home) as store:
         if hybrid:

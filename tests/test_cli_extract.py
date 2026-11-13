@@ -137,3 +137,20 @@ def test_topics_and_entities_can_be_browsed(home: Path, monkeypatch: pytest.Monk
     assert "Topic" in shown.output and "Related" in shown.output
     assert "Mentioned in" in shown.output
     assert "No entity named 'nobody'" in unknown.output
+
+
+def test_the_markdown_export_carries_the_topics(
+    home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runner.invoke(app, ["note", "Rust and Cargo and Clippy."])
+    runner.invoke(app, ["note", "Clippy checks Rust."])
+    runner.invoke(app, ["process", "--no-embed"])
+    _use(monkeypatch, FakeLLM())
+    runner.invoke(app, ["extract"])
+
+    written = runner.invoke(app, ["export", str(tmp_path / "readable"), "--markdown"])
+
+    assert written.exit_code == 0, written.output
+    report = (tmp_path / "readable" / "topics.md").read_text(encoding="utf-8")
+    assert report.startswith("# Topics")
+    assert "## About Clippy" in report

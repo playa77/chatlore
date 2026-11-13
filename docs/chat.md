@@ -65,6 +65,8 @@ Keep that binding for this phase. `--port` sets the port, 8000 by default.
 | `GET /facts?q=...` | Facts matching the words, or the newest facts, each with the messages that said it; `limit` |
 | `GET /topics?q=...` | Topics matching the words, or all topics, largest first |
 | `GET /topics/{id}` | A topic's report and its entities |
+| `GET /topics/export` | All topics as one Markdown file, largest first |
+| `POST /library/process` | Continue the graph work for what the library holds: embed and read what is missing, as an upload would |
 | `GET /graph` | Entities, the links among them, and their topics, for drawing; `entity`, `topic`, `limit` |
 | `GET /explore` | Entities and the chats they came up in, with the links among them; `entity`, `conversation`, `topic`, `source`, `since`, `until`; see [web.md](web.md) |
 | `GET /explore/timeline` | Chats started each month; `source` |
@@ -74,6 +76,37 @@ Keep that binding for this phase. `--port` sets the port, 8000 by default.
 | `GET /library/export` | Download archive or Markdown ZIP (`format=archive` or `markdown`) |
 | `DELETE /library` | Delete a visitor library in public mode; unavailable for the private server's main library |
 | `POST /chat` | A streamed answer, below |
+
+### Running it persistently
+
+`chatlore serve` runs until its shell ends. To keep it running, put it in a
+systemd user service — with the checkout as the working directory, so the `.env`
+next to it is found:
+
+```ini
+# ~/.config/systemd/user/chatlore.service
+[Unit]
+Description=ChatLore web interface and API
+
+[Service]
+WorkingDirectory=%h/projects/chatlore
+ExecStart=%h/.local/bin/uv run --locked chatlore serve --host 127.0.0.1
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now chatlore
+journalctl --user -u chatlore -f      # follow the log
+systemctl --user restart chatlore     # after pulling an update
+```
+
+For a session that outlives a terminal without a service, a multiplexer works
+too: `tmux new -s chatlore 'uv run --locked chatlore serve'`, then Ctrl-b d to
+leave it running.
 
 ### Streaming chat
 

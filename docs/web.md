@@ -26,7 +26,8 @@ one with the toggle at the bottom of the sidebar, and remembers that choice.
   Clicking one opens it as a chat.
 - **Topics.** The topic reports from `chatlore extract` as cards, largest first,
   with a word filter. A topic opens with its summary, findings, and entities, and
-  can be explored in the graph.
+  can be explored in the graph. **Download all topics as Markdown** writes every
+  report to one file.
 - **Explore.** The knowledge graph and the chats it came from, side by side with
   a panel to read them in; see below.
 
@@ -49,9 +50,14 @@ one with the toggle at the bottom of the sidebar, and remembers that choice.
   conversations may remain but processing fails. Without an LLM key, graph
   enrichment is skipped with a note after successful embedding. These steps
   can spend credits automatically. When done, **Show the library** reloads it.
+  When the model's key runs out of credits, the run stops with a note in plain
+  words instead of the provider's raw error, and everything read so far is
+  kept: word search and the graph built up to that point keep working. Add
+  credits, then **Resume processing** — the button appears when passages are
+  still unread — to finish the graph from where it stopped.
 - **ChatLore archive** downloads the whole library, graph and caches included,
-  to import anywhere; **Markdown** downloads one readable file per conversation.
-  See [export.md](export.md).
+  to import anywhere; **Markdown** downloads one readable file per conversation,
+  with `topics.md` alongside when the graph has topics. See [export.md](export.md).
 
 On your own machine the upload goes into the selected library itself. Keep the
 server bound to loopback for this phase. Inherited public-mode behavior is

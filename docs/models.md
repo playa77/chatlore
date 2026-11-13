@@ -23,8 +23,11 @@ uv run --locked chatlore doctor
 ```
 
 `doctor` reports the selected models and whether keys are set, without printing
-the keys. Fill `CHATLORE_LLM_API_KEY` for this setup, even if a diagnostic
-also mentions the inherited `OPENROUTER_API_KEY` fallback.
+the keys. With a key configured it also asks the provider to confirm it — a
+free request that says valid or rejected. `--probe` goes one step further and
+sends one tiny request to each model, proving the whole path works; that spends
+a little credit. Fill `CHATLORE_LLM_API_KEY` for this setup, even if a
+diagnostic also mentions the inherited `OPENROUTER_API_KEY` fallback.
 
 The CLI reads the nearest `.env` in the working directory or a parent directory.
 Existing shell variables take precedence, including empty values. Running from

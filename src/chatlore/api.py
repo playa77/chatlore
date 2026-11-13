@@ -27,6 +27,7 @@ from __future__ import annotations
 import functools
 import re
 import shutil
+import sqlite3
 import tempfile
 import threading
 import time
@@ -52,7 +53,12 @@ from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from chatlore import __version__
-from chatlore.archive import export_archive, export_markdown
+from chatlore.archive import (
+    export_archive,
+    export_markdown,
+    export_topics_markdown,
+    topics_markdown,
+)
 from chatlore.chat import MAX_SOURCES, ChatLimits, Context, Source, answer, cited, retrieve
 from chatlore.embeddings import (
     Embedder,
@@ -62,12 +68,14 @@ from chatlore.embeddings import (
     normalise,
 )
 from chatlore.explore import NotFoundError, Window, conversation_entities, explore, timeline
+from chatlore.extraction import ExtractionCache
 from chatlore.facts import facts_about, find_facts
 from chatlore.imports import Imports, safe_relative
 from chatlore.library import Library
-from chatlore.llm import LLMError, make_llm
+from chatlore.llm import LLMError, llm_settings, make_llm
 from chatlore.mcp_server import create_server
 from chatlore.paths import default_home
+from chatlore.pipeline import EXTRACTION_MODEL_KEY, pending_extractions
 from chatlore.search import hybrid_search
 from chatlore.spaces import COOKIE, Space, Spaces
 from chatlore.store import Edge, EdgeType, GraphStore, Label, Node, open_store
@@ -409,7 +417,26 @@ def create_app(
             "keep_hours": spaces.keep.total_seconds() / 3600 if spaces is not None else None,
             "max_upload_mb": max_upload // 1_000_000,
             "import": status.as_dict() if status is not None else None,
+            "graph_pending": _graph_pending(),
         }
+
+    def _graph_pending() -> int | None:
+        """Chunks the reading model has not read yet, to offer finishing the graph.
+
+        ``None`` when it cannot be asked, such as without a usable configuration:
+        the interface then simply does not offer to resume.
+        """
+        try:
+            with store() as graph:
+                if graph.count_nodes(Label.CHUNK) == 0:
+                    return 0
+                model = graph.get_meta(EXTRACTION_MODEL_KEY)
+                if model is None:
+                    model = llm_settings().model
+                with ExtractionCache(current_home() / "cache" / "extractions.db") as cache:
+                    return len(pending_extractions(graph, cache, model))
+        except (LLMError, OSError, sqlite3.Error):
+            return None
 
     staged: dict[tuple[Path, str], list[int]] = {}
     staging = threading.Lock()
@@ -518,6 +545,20 @@ def create_app(
             name = PurePosixPath(name).name
         return imports.start(target, folder, name, opener).as_dict()
 
+    @app.post("/library/process", status_code=202)
+    def process_library(request: Request, response: Response) -> dict[str, Any]:
+        """Continue the graph work for what the library already holds.
+
+        The embedding and reading steps of an upload, without the upload: for
+        finishing a run that stopped early, such as when the model key ran out
+        of credits. ``GET /library`` shows how far it gets.
+        """
+        _changes_allowed(request)
+        target, opener = _target(request, response)
+        if imports.running(target):
+            raise HTTPException(409, "an import is already running for this library")
+        return imports.start_process(target, opener).as_dict()
+
     @app.get("/library/export")
     def export_library(
         format: Annotated[str, Query(pattern="^(archive|markdown)$")] = "archive",
@@ -534,6 +575,8 @@ def create_app(
                     export_archive(home, target, store=graph)
             else:
                 export_markdown(Library(home), folder / "markdown")
+                with store() as graph:
+                    export_topics_markdown(graph, folder / "markdown")
                 target = Path(
                     shutil.make_archive(
                         str(folder / "chatlore-markdown"), "zip", folder / "markdown"
@@ -792,6 +835,21 @@ def create_app(
                     graph.find_nodes(Label.TOPIC), key=lambda node: -int(node.props["size"])
                 )[:limit]
             return [_topic(node, entities=10) for node in nodes]
+
+    @app.get("/topics/export")
+    def topics_export() -> Response:
+        """Every topic as one Markdown file, largest first."""
+        with store() as graph:
+            topics = sorted(
+                graph.find_nodes(Label.TOPIC), key=lambda node: -int(node.props["size"])
+            )
+        if not topics:
+            raise HTTPException(404, "no topics yet; run `chatlore extract` first")
+        return Response(
+            topics_markdown(topics),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="topics.md"'},
+        )
 
     @app.get("/topics/{topic_id}")
     def topic(topic_id: str) -> dict[str, Any]:

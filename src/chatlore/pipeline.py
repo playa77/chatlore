@@ -108,6 +108,9 @@ def sync_chunks(
 
 EMBEDDING_MODEL_KEY = "embedding_model"
 
+EXTRACTION_MODEL_KEY = "extraction_model"
+"""The model whose cached reading the graph was built from, for asking how much is left."""
+
 
 class EmbeddingModelMismatchError(Exception):
     """The store holds vectors from another model; mixing them would corrupt search."""
@@ -246,6 +249,7 @@ def sync_extractions(
     If the model cannot be reached at all, the run stops with ``LLMError``.
     """
     pending = pending_extractions(store, cache, llm.name)
+    store.set_meta(EXTRACTION_MODEL_KEY, llm.name)
     waiting = {text_hash(str(node.props.get("text", ""))) for node in pending}
     report = ExtractReport(
         already_done=sum(

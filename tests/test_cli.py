@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
 from chatlore import __version__
 from chatlore.cli import app, default_home, load_env_file, run
+from chatlore.llm import LLMAnswerError
+from tests.fakes import FakeEmbedder, FakeLLM
 
 runner = CliRunner()
 
@@ -56,6 +59,194 @@ def test_doctor_reports_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert result.exit_code == 0
     assert "python" in result.output
     assert "exists" in result.output
+
+
+_KEY_VARS = (
+    "CHATLORE_LLM_BASE_URL",
+    "CHATLORE_LLM_MODEL",
+    "CHATLORE_LLM_API_KEY",
+    "OPENROUTER_API_KEY",
+    "CHATLORE_EMBEDDING_PROVIDER",
+    "CHATLORE_EMBEDDING_API_KEY",
+    "CHATLORE_EMBEDDING_MODEL",
+)
+
+
+@pytest.fixture
+def key_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("CHATLORE_HOME", str(tmp_path))
+    monkeypatch.setenv("COLUMNS", "200")
+    for name in _KEY_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_doctor_validates_both_keys_with_the_provider(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CHATLORE_LLM_API_KEY", "sk-chat")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_PROVIDER", "openrouter")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_API_KEY", "sk-embed")
+    calls: list[tuple[str, str]] = []
+
+    def check(url: str, key: str) -> int:
+        calls.append((url, key))
+        return 200
+
+    monkeypatch.setattr("chatlore.cli._url_status", check)
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0, result.output
+    rows = [line for line in result.output.splitlines() if "│" in line]
+    assert any("model key" in line and " valid " in line for line in rows)
+    assert any("embedding key" in line and " valid " in line for line in rows)
+    assert calls == [
+        ("https://openrouter.ai/api/v1/key", "sk-chat"),
+        ("https://openrouter.ai/api/v1/key", "sk-embed"),
+    ]
+
+
+def test_doctor_reports_a_rejected_key(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CHATLORE_LLM_API_KEY", "sk-chat")
+    monkeypatch.setattr("chatlore.cli._url_status", lambda url, key: 401)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "rejected (HTTP 401)" in result.output
+
+
+def test_doctor_says_when_a_key_cannot_be_checked(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CHATLORE_LLM_API_KEY", "sk-chat")
+    monkeypatch.setattr("chatlore.cli._url_status", lambda url, key: None)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "could not check" in result.output
+
+
+def test_doctor_probe_answers_with_the_configured_models(
+    key_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CHATLORE_LLM_API_KEY", "sk-chat")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_PROVIDER", "openrouter")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_API_KEY", "sk-embed")
+    monkeypatch.setattr("chatlore.cli.make_llm", lambda: FakeLLM())
+    monkeypatch.setattr("chatlore.cli.make_embedder", lambda home: FakeEmbedder())
+
+    result = runner.invoke(app, ["doctor", "--probe"])
+
+    assert result.exit_code == 0, result.output
+    assert "spends a little credit" in result.output
+    assert result.output.count("answered") == 2
+
+
+def test_doctor_probe_names_the_remedy_when_the_key_has_no_balance(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CHATLORE_LLM_API_KEY", "sk-chat")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_PROVIDER", "openrouter")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_API_KEY", "sk-embed")
+    monkeypatch.setattr("chatlore.cli.make_llm", lambda: FakeLLM(payment_on_request=1))
+    monkeypatch.setattr("chatlore.cli.make_embedder", lambda home: FakeEmbedder())
+
+    result = runner.invoke(app, ["doctor", "--probe"])
+
+    assert "credits" in result.output
+    assert "openrouter.ai/settings/credits" in result.output
+
+
+def test_doctor_probe_counts_a_probe_cut_off_as_reaching_the_model(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A reasoning model can spend the probe's tiny budget thinking; the point of
+    # the probe is that the key reaches the model, so say that instead of failing.
+    monkeypatch.setenv("CHATLORE_LLM_API_KEY", "sk-chat")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_PROVIDER", "openrouter")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_API_KEY", "sk-embed")
+
+    class CutOff(FakeLLM):
+        def complete(self, messages: Any, **kwargs: Any) -> Any:
+            raise LLMAnswerError("fake model stopped at the token limit before finishing")
+
+    monkeypatch.setattr("chatlore.cli.make_llm", lambda: CutOff())
+    monkeypatch.setattr("chatlore.cli.make_embedder", lambda home: FakeEmbedder())
+
+    result = runner.invoke(app, ["doctor", "--probe"])
+
+    assert "reached the model" in result.output
+
+
+def test_process_without_an_embedding_key_says_what_it_will_use(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("chatlore.cli.make_embedder", lambda home: FakeEmbedder())
+
+    result = runner.invoke(app, ["process"])
+
+    assert "local FastEmbed" in result.output
+    assert "CHATLORE_EMBEDDING_PROVIDER=openrouter" in result.output
+
+
+def test_process_with_openrouter_and_no_key_names_the_variable(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CHATLORE_EMBEDDING_PROVIDER", "openrouter")
+    monkeypatch.setattr("chatlore.cli.make_embedder", lambda home: FakeEmbedder())
+
+    result = runner.invoke(app, ["process"])
+
+    assert "CHATLORE_EMBEDDING_API_KEY" in result.output
+    assert "local FastEmbed" not in result.output
+
+
+def test_extract_without_a_model_key_says_what_needs_one(key_environment: None) -> None:
+    result = runner.invoke(app, ["extract"])
+
+    assert "No model API key set" in result.output
+    assert "CHATLORE_LLM_API_KEY" in result.output
+
+
+def test_search_semantic_without_an_embedding_key_warns(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("chatlore.cli.make_embedder", lambda home: FakeEmbedder())
+
+    result = runner.invoke(app, ["search", "anything", "--semantic"])
+
+    assert "No embedding API key set" in result.output
+
+
+def test_serve_without_keys_warns_about_both(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("uvicorn.run", lambda app, **options: None)
+
+    result = runner.invoke(app, ["serve"])
+
+    assert result.exit_code == 0, result.output
+    assert "No model API key set" in result.output
+    assert "No embedding API key set" in result.output
+
+
+def test_a_configured_setup_warns_about_nothing(
+    key_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CHATLORE_LLM_API_KEY", "sk-chat")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_PROVIDER", "openrouter")
+    monkeypatch.setenv("CHATLORE_EMBEDDING_API_KEY", "sk-embed")
+    monkeypatch.setattr("chatlore.cli.make_embedder", lambda home: FakeEmbedder())
+    monkeypatch.setattr("chatlore.cli.make_llm", lambda: FakeLLM())
+
+    extract = runner.invoke(app, ["extract"])
+    process = runner.invoke(app, ["process"])
+
+    assert "No model API key set" not in extract.output
+    assert "No embedding API key set" not in process.output
+    assert "local FastEmbed" not in process.output
 
 
 def test_doctor_names_the_model_without_showing_the_key(

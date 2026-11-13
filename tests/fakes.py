@@ -9,9 +9,15 @@ import re
 import threading
 from collections.abc import Iterator, Sequence
 
-from chatlore.llm import ChatMessage, Completion, LLMAnswerError, LLMError
+from chatlore.llm import ChatMessage, Completion, LLMAnswerError, LLMError, LLMPaymentError
 
 DIMENSION = 32
+
+_PAYMENT = (
+    "fake model cannot pay for this request (HTTP 402): the key has no balance for this "
+    "request. Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / "
+    "prompt size."
+)
 
 
 class FakeEmbedder:
@@ -61,6 +67,7 @@ class FakeLLM:
         broken_requests: Sequence[int] = (),
         fail_on_request: int | None = None,
         empty_requests: Sequence[int] = (),
+        payment_on_request: int | None = None,
     ) -> None:
         self.name = name
         self.requests: list[list[str]] = []
@@ -71,6 +78,7 @@ class FakeLLM:
         self._broken = set(broken_requests)
         self._empty = set(empty_requests)
         self._fail_on = fail_on_request
+        self._payment_on = payment_on_request
         self._calls = 0
         self._lock = threading.Lock()
 
@@ -93,6 +101,8 @@ class FakeLLM:
                 answer = self._report(content)
             else:
                 answer = self._extraction(content)
+        if number == self._payment_on:
+            raise LLMPaymentError(_PAYMENT)
         if number == self._fail_on:
             raise LLMError("fake model is unreachable")
         if number in self._empty:
@@ -193,6 +203,8 @@ class FakeLLM:
             self.chat_requests.append(content)
         if number == self._fail_on:
             raise LLMError("fake model is unreachable")
+        if number == self._payment_on:
+            raise LLMPaymentError(_PAYMENT)
         if number in self._empty:
             raise LLMAnswerError("fake model returned an empty answer")
         yield "From your conversations: "

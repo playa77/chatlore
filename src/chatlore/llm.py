@@ -15,6 +15,7 @@ client; semantic retrieval uses the separately configured embedding client.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -29,6 +30,9 @@ if TYPE_CHECKING:
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 DEFAULT_REASONING = "off"
+
+OPENROUTER_CREDITS_URL = "https://openrouter.ai/settings/credits"
+"""Where an OpenRouter key's balance is topped up; named in out-of-credits messages."""
 
 BASE_URL_ENV = "CHATLORE_LLM_BASE_URL"
 MODEL_ENV = "CHATLORE_LLM_MODEL"
@@ -72,6 +76,47 @@ class LLMAnswerError(LLMError):
     Unlike an unreachable server, this can happen to one request among many, so
     callers working through a batch may skip it and ask again later.
     """
+
+
+class LLMPaymentError(LLMError):
+    """The key cannot pay for this request: out of credits or under its limit.
+
+    Retrying cannot help until the balance or the key's limit changes, so the
+    message says what to do instead of showing the provider's raw reply.
+    """
+
+
+_AFFORD = re.compile(r"up to (\d+) tokens[^0-9]*?afford (\d+)")
+
+
+def _payment_message(model: str, base_url: str, body: object) -> str:
+    """A user-facing message for an HTTP 402, from the reply's billing numbers only."""
+    asked = affordable = None
+    if isinstance(body, dict):
+        inner = body.get("error")
+        # Some replies wrap the details in an "error" object; the OpenAI SDK's
+        # own body is already the inner object, with "message" at the top.
+        text = inner.get("message") if isinstance(inner, dict) else body.get("message")
+        if isinstance(text, str) and (match := _AFFORD.search(text)):
+            asked, affordable = match.groups()
+    detail = (
+        f": the request asked for up to {asked} tokens, but the key can afford {affordable}"
+        if asked and affordable
+        else ": the key has no balance for this request"
+    )
+    remedy = (
+        f" Add credits at {OPENROUTER_CREDITS_URL}, or lower max_tokens / prompt size."
+        if _is_openrouter(base_url)
+        else " Top up the key's balance, or lower max_tokens / prompt size."
+    )
+    return f"{model} cannot pay for this request (HTTP 402){detail}.{remedy}"
+
+
+def _status_error(model: str, base_url: str, error: openai.APIStatusError) -> LLMError:
+    """Turn a rejected HTTP status into the error a user can act on."""
+    if error.status_code == 402:
+        return LLMPaymentError(_payment_message(model, base_url, error.body))
+    return LLMError(f"{model} at {base_url} failed with HTTP {error.status_code}: {error.message}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,10 +272,7 @@ class OpenAICompatibleLLM:
                 extra_body=self._extra_body or None,
             )
         except openai.APIStatusError as error:
-            raise LLMError(
-                f"{self.name} at {self.base_url} failed with HTTP {error.status_code}: "
-                f"{error.message}"
-            ) from error
+            raise _status_error(self.name, self.base_url, error) from error
         except openai.APIConnectionError as error:
             raise LLMError(f"could not reach {self.base_url}: {error}") from error
 
@@ -282,10 +324,7 @@ class OpenAICompatibleLLM:
             finally:
                 response.close()
         except openai.APIStatusError as error:
-            raise LLMError(
-                f"{self.name} at {self.base_url} failed with HTTP {error.status_code}: "
-                f"{error.message}"
-            ) from error
+            raise _status_error(self.name, self.base_url, error) from error
         except openai.APIConnectionError as error:
             raise LLMError(f"could not reach {self.base_url}: {error}") from error
         if not written:

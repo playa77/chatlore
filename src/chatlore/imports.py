@@ -28,7 +28,7 @@ from chatlore.extraction import ExtractionCache
 from chatlore.importers import ImporterError
 from chatlore.importers.intake import Intake
 from chatlore.library import AddOutcome, Library
-from chatlore.llm import LLM, LLMError
+from chatlore.llm import LLM, LLMError, LLMPaymentError
 from chatlore.pipeline import (
     EmbeddingModelMismatchError,
     pending_duplicates,
@@ -54,6 +54,14 @@ class _ClosableLLM(LLM, Protocol):
 
 class ImportCancelledError(Exception):
     """The import was stopped on request."""
+
+
+def _stopped_note(stage: str, error: LLMError) -> str:
+    """What the dialog shows when the model stops mid-run; a payment stop says what to do."""
+    note = f"The model stopped answering while {stage}: {error}"
+    if isinstance(error, LLMPaymentError):
+        note += " Add credits, then resume processing; everything read so far is kept."
+    return note
 
 
 @dataclass(slots=True)
@@ -131,6 +139,20 @@ class Imports:
         self._executor.submit(self._run, home, upload, store, status)
         return status
 
+    def start_process(self, home: Path, store: Callable[[], GraphStore]) -> ImportStatus:
+        """Queue the pipeline for what the library at ``home`` already holds.
+
+        The steps an upload runs after importing — embeddings, then reading and
+        the graph — on the current library, for finishing a run that stopped
+        early, such as when the model's key ran out of credits.
+        """
+        status = ImportStatus(file="the library")
+        with self._lock:
+            self._status[home] = status
+            self._cancelled.discard(home)
+        self._executor.submit(self._run, home, None, store, status)
+        return status
+
     def cancel(self, home: Path, then: Callable[[], None] | None = None) -> bool:
         """Stop the library's import at its next step. Returns whether one was running.
 
@@ -157,7 +179,7 @@ class Imports:
         self._executor.shutdown(wait=True, cancel_futures=True)
 
     def _run(
-        self, home: Path, upload: Path, store: Callable[[], GraphStore], status: ImportStatus
+        self, home: Path, upload: Path | None, store: Callable[[], GraphStore], status: ImportStatus
     ) -> None:
         def check() -> None:
             with self._lock:
@@ -172,8 +194,9 @@ class Imports:
         try:
             check()
             graph = store()
-            status.stage = "importing"
-            _import(upload, home, graph, status)
+            if upload is not None:
+                status.stage = "importing"
+                _import(upload, home, graph, status)
             check()
             self._embed(home, graph, status, advance)
             check()
@@ -195,7 +218,8 @@ class Imports:
         finally:
             if graph is not None:
                 graph.close()
-            shutil.rmtree(upload, ignore_errors=True)
+            if upload is not None:
+                shutil.rmtree(upload, ignore_errors=True)
             status.finished_at = datetime.now(UTC).isoformat()
             with self._lock:
                 self._cancelled.discard(home)
@@ -237,7 +261,7 @@ class Imports:
                 except LLMError as error:
                     # As on the command line: keep what was read so far.
                     sync_entities(graph, cache, llm.name)
-                    status.notes.append(f"The model stopped answering: {error}")
+                    status.notes.append(_stopped_note("reading", error))
                     return
                 sync_entities(graph, cache, llm.name)
                 try:
@@ -251,9 +275,7 @@ class Imports:
                     status.total = pending_topics(graph, cache, llm.name)
                     sync_topics(graph, llm, cache, on_progress=advance)
                 except LLMError as error:
-                    status.notes.append(
-                        f"The model stopped answering while {status.stage}: {error}"
-                    )
+                    status.notes.append(_stopped_note(status.stage, error))
         finally:
             llm.close()
 

@@ -96,7 +96,7 @@ class GeminiLLM:
     def _check(self, finish_reason: types.FinishReason | None) -> None:
         if finish_reason == types.FinishReason.MAX_TOKENS:
             raise LLMAnswerError(f"{self.name} stopped at the token limit before finishing")
-        if finish_reason in _DECLINED:
+        if finish_reason is not None and finish_reason in _DECLINED:
             raise LLMAnswerError(f"{self.name} declined to answer ({finish_reason.value})")
 
     def complete(

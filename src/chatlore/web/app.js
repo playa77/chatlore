@@ -225,8 +225,26 @@ const Data = {
           ? "Try ChatLore on your own conversations."
           : "Download the demo library.";
     const status = info.import;
-    $("#data-progress").hidden = !status;
+    $("#data-progress").hidden = !status && !(info.graph_pending > 0);
     if (status) this.show(status);
+    else if (info.graph_pending > 0) {
+      // No run is remembered (say, after a restart), but the graph is not finished.
+      $("#data-stage").textContent = "The knowledge graph is not finished";
+      $("#data-bar").value = 1;
+      $("#data-count").textContent = "";
+      $("#data-summary").textContent = "";
+      $("#data-notes").innerHTML = this.resumeOffer();
+      $("#data-resume").addEventListener("click", () => this.resume());
+    }
+  },
+
+  /** The list item with the resume button, shown while passages are unread. */
+  resumeOffer() {
+    const left = number(this.info.graph_pending);
+    return (
+      `<li>${left} ${left === "1" ? "passage is" : "passages are"} not in the graph yet. ` +
+      '<button type="button" class="primary" id="data-resume">Resume processing</button></li>'
+    );
   },
 
   show(status, uploaded) {
@@ -262,6 +280,10 @@ const Data = {
     $("#data-summary").innerHTML = esc(summary.join(" · ")) + (status.error ? `<br><span class="error">${esc(status.error)}</span>` : "");
     const notes = [...(status.notes || [])];
     $("#data-notes").innerHTML = notes.map((note) => `<li>${esc(note)}</li>`).join("");
+    if (!status.running && this.info?.graph_pending > 0) {
+      $("#data-notes").insertAdjacentHTML("beforeend", this.resumeOffer());
+      $("#data-resume").addEventListener("click", () => this.resume());
+    }
     if (status.stage === "done" && !status.running) {
       $("#data-notes").insertAdjacentHTML("beforeend", '<li><button type="button" class="primary" id="data-show">Show the library</button></li>');
       $("#data-show").addEventListener("click", () => location.reload());
@@ -317,6 +339,16 @@ const Data = {
     if (!confirm("Delete your library from this server now? This cannot be undone.")) return;
     const response = await fetch("library", { method: "DELETE", headers: { "X-ChatLore": "1" } });
     if (response.ok) location.reload();
+  },
+
+  /** Finish the knowledge graph for what the library holds, after a stopped run. */
+  async resume() {
+    try {
+      this.show(await api("/library/process", { method: "POST", headers: { "X-ChatLore": "1" } }));
+      this.poll();
+    } catch (error) {
+      this.show({ file: "the library", stage: "failed", running: false, error: error.message });
+    }
   },
 };
 
@@ -700,6 +732,7 @@ const Topics = {
     grid.innerHTML = '<p class="empty">Loading…</p>';
     try {
       const topics = await api(`/topics?${new URLSearchParams(q ? { q, limit: 100 } : { limit: 300 })}`);
+      $("#topics-download").hidden = !topics.length;
       const largest = Math.max(1, ...topics.map((t) => t.size));
       grid.innerHTML = topics.length
         ? topics

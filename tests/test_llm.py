@@ -15,6 +15,7 @@ from chatlore.llm import (
     ChatMessage,
     LLMAnswerError,
     LLMError,
+    LLMPaymentError,
     OpenAICompatibleLLM,
     llm_settings,
     make_llm,
@@ -337,3 +338,68 @@ def test_stream_raises_the_same_errors_as_complete(
 
     with pytest.raises(error, match=message):
         list(client.stream([ChatMessage("user", "Hi")]))
+
+
+def test_stream_raises_the_same_payment_error_as_complete(
+    make_client: Callable[[Handler], OpenAICompatibleLLM],
+    openrouter_402: httpx2.Response,
+) -> None:
+    with pytest.raises(LLMPaymentError, match="credits"):
+        list(make_client(lambda request: openrouter_402).stream([ChatMessage("user", "Hi")]))
+
+
+@pytest.fixture
+def openrouter_402() -> httpx2.Response:
+    """A credit exhaustion reply, as OpenRouter sends one (billing data, no user text)."""
+    return httpx2.Response(
+        402,
+        json={
+            "error": {
+                "message": (
+                    "This request requires more credits, or fewer max_tokens. "
+                    "You requested up to 131072 tokens, but can only afford 78438. "
+                    "To increase, visit https://openrouter.ai/workspaces/default/keys/abc123 "
+                    "and adjust the key's total limit"
+                ),
+                "code": 402,
+                "metadata": {
+                    "limit_source": "openrouter_credits",
+                    "remedy_hint": (
+                        "Add credits at https://openrouter.ai/settings/credits, "
+                        "or lower max_tokens / prompt size to fit your remaining balance."
+                    ),
+                },
+            }
+        },
+    )
+
+
+def test_a_402_is_a_payment_error_with_a_remedy(
+    make_client: Callable[[Handler], OpenAICompatibleLLM],
+    openrouter_402: httpx2.Response,
+) -> None:
+    with pytest.raises(LLMPaymentError) as raised:
+        make_client(lambda request: openrouter_402).complete([ChatMessage("user", "Hello")])
+
+    message = str(raised.value)
+    assert isinstance(raised.value, LLMError)
+    assert "credits" in message
+    assert "https://openrouter.ai/settings/credits" in message
+    assert "131072" in message and "78438" in message
+    # The raw body must not reach the user: it carries a per-key workspace URL.
+    assert "'error'" not in message
+    assert "keys/abc123" not in message
+
+
+def test_a_402_without_parsed_numbers_still_names_the_remedy(
+    make_client: Callable[[Handler], OpenAICompatibleLLM],
+) -> None:
+    response = httpx2.Response(402, json={"error": {"message": "out of balance"}})
+
+    with pytest.raises(LLMPaymentError) as raised:
+        make_client(lambda request: response).complete([ChatMessage("user", "Hello")])
+
+    message = str(raised.value)
+    assert "credits" in message
+    assert "https://openrouter.ai/settings/credits" in message
+    assert "out of balance" not in message
