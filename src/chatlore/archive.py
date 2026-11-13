@@ -335,6 +335,40 @@ def export_markdown(conversations: Iterable[Conversation], folder: Path) -> int:
     return written
 
 
+def topics_markdown(topics: Iterable[Node]) -> str:
+    """Every topic as one readable Markdown file: report, findings, and members.
+
+    ``topics`` are the graph's topic nodes, largest first, as
+    ``export_topics_markdown`` collects them.
+    """
+    parts = ["# Topics\n"]
+    for node in topics:
+        props = node.props
+        parts.append(f"## {props.get('title') or '(untitled)'}\n")
+        if summary := str(props.get("summary") or ""):
+            parts.append(f"{summary}\n")
+        findings = props.get("findings") or []
+        if findings:
+            parts.append("\n".join(f"- {item}" for item in findings) + "\n")
+        names = props.get("entities") or []
+        size = props.get("size") if props.get("size") is not None else len(names)
+        parts.append(f"*{size} entities*: {', '.join(str(name) for name in names)}\n")
+    return "\n".join(parts)
+
+
+def export_topics_markdown(store: GraphStore, folder: Path) -> int:
+    """Write every topic in ``store`` into ``folder/topics.md``, largest first.
+
+    Returns how many topics were written; nothing is written when there are none.
+    """
+    topics = sorted(store.find_nodes(Label.TOPIC), key=lambda node: -int(node.props["size"]))
+    if not topics:
+        return 0
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "topics.md").write_text(topics_markdown(topics), encoding="utf-8", newline="\n")
+    return len(topics)
+
+
 def conversation_markdown(conversation: Conversation) -> str:
     """One conversation as Markdown: front matter, a title, then each message."""
     front = {

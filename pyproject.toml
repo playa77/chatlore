@@ -118,6 +118,13 @@ plugins = ["pydantic.mypy"]
 module = ["sqlite_vec", "fastembed", "networkx", "falkordb", "falkordb.*", "redis", "redis.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# The optional provider SDKs: without them installed (a bare `uv sync --locked`,
+# unlike CI), these imports do not resolve, and the modules only load when their
+# provider is configured.
+module = ["anthropic", "anthropic.*", "google.genai", "google.genai.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"

@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any, Protocol, Self
 
 import openai
 
+from chatlore.llm import OPENROUTER_CREDITS_URL
+
 if TYPE_CHECKING:
     import httpx2
 
@@ -135,7 +137,13 @@ class OpenRouterEmbedder:
                 model=self.name, input=list(texts), encoding_format="float"
             )
         except openai.APIStatusError as error:
-            # Provider response bodies can echo submitted text. Keep them out of UI/logs.
+            # Provider response bodies can echo submitted text. Keep them out of UI/logs;
+            # an out-of-credits reply gets a remedy instead of its raw wording.
+            if error.status_code == 402:
+                raise EmbeddingError(
+                    "the OpenRouter embedding key has no balance (HTTP 402): "
+                    f"add credits at {OPENROUTER_CREDITS_URL}"
+                ) from None
             raise EmbeddingError(
                 f"OpenRouter embedding request failed with HTTP {error.status_code}"
             ) from None

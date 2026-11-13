@@ -92,6 +92,38 @@ def test_errors_are_sanitized_without_retries_or_fallback(status: int) -> None:
         client.close()
 
 
+def test_a_402_names_the_remedy_without_the_body() -> None:
+    requests = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(
+            402,
+            json={
+                "error": {
+                    "message": "This request requires more credits, or fewer max_tokens.",
+                    "code": 402,
+                }
+            },
+        )
+
+    client = OpenRouterEmbedder(
+        "openai/text-embedding-3-small",
+        "embedding-only",
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    )
+    try:
+        with pytest.raises(EmbeddingError) as caught:
+            client.embed_query("private query")
+        message = str(caught.value)
+        assert "credits" in message
+        assert "https://openrouter.ai/settings/credits" in message
+        assert "max_tokens" not in message  # the provider's wording stays out
+        assert len(requests) == 1
+    finally:
+        client.close()
+
+
 @pytest.mark.parametrize(
     "indices,vectors",
     [

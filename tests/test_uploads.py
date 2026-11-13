@@ -18,7 +18,8 @@ from typer.testing import CliRunner
 from chatlore.api import create_app
 from chatlore.archive import export_archive, read_manifest
 from chatlore.cli import app as cli
-from chatlore.llm import LLMError
+from chatlore.embeddings import EmbeddingError
+from chatlore.llm import LLMError, LLMPaymentError
 from chatlore.spaces import COOKIE, Spaces
 from tests.conftest import make_zip
 from tests.fakes import FakeEmbedder, FakeLLM
@@ -193,6 +194,153 @@ def test_the_model_reads_only_as_many_passages_as_allowed(home: Path, fixtures: 
 
     assert status["stage"] == "done"
     assert status["notes"][0].startswith("The model read 1 of ")
+
+
+def test_a_payment_stop_while_reading_says_how_to_resume(
+    tmp_path: Path, fixtures: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("chatlore.api.make_embedder", lambda home: FakeEmbedder())
+    monkeypatch.setattr("chatlore.api.make_llm", lambda: FakeLLM(payment_on_request=1))
+    with TestClient(create_app(tmp_path / "fresh")) as client:
+        upload(client, fixtures / "claude" / "conversations.json")
+        status = finished(client)
+        stats = client.get("/stats").json()
+
+    assert status["stage"] == "done", status
+    joined = " ".join(status["notes"])
+    assert "while reading" in joined
+    assert "credits" in joined
+    assert "resume" in joined
+    assert "'error'" not in joined and "keys/" not in joined
+    # The upload itself is kept, ready to be finished.
+    assert stats["conversations"] == 3
+
+
+def test_a_payment_stop_keeps_what_was_read_and_what_was_built(
+    home: Path, fixtures: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The home library was already read by the fixture's model; the upload's
+    # chunks are read, and the balance runs out before the summaries are written.
+    monkeypatch.setattr("chatlore.api.make_llm", lambda: FakeLLM())
+
+    def out_of_balance(store: Any, llm: Any, cache: Any, **kwargs: Any) -> Any:
+        raise LLMPaymentError(
+            "fake model cannot pay for this request (HTTP 402): the key has no balance "
+            "for this request. Add credits at https://openrouter.ai/settings/credits, "
+            "or lower max_tokens / prompt size."
+        )
+
+    monkeypatch.setattr("chatlore.imports.sync_summaries", out_of_balance)
+    with TestClient(create_app(home)) as client:
+        upload(client, fixtures / "claude" / "conversations.json")
+        status = finished(client)
+        stats = client.get("/stats").json()
+
+    assert status["stage"] == "done", status
+    joined = " ".join(status["notes"])
+    assert "while summarising" in joined
+    assert "credits" in joined and "resume" in joined
+    assert "'error'" not in joined
+    assert stats["entities"] > 0
+    assert stats["topics"] == 0  # never reached, not silently pretended
+
+
+def test_processing_resumes_a_stopped_library(
+    home: Path, fixtures: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("chatlore.api.make_llm", lambda: FakeLLM(payment_on_request=1))
+    with TestClient(create_app(home)) as client:
+        upload(client, fixtures / "chatgpt" / "conversations.json")
+        stopped = finished(client)
+        pending = client.get("/library").json()["graph_pending"]
+        assert stopped["stage"] == "done"
+        assert pending > 0
+
+        # The balance is topped up: a working model, then resume from the dialog.
+        monkeypatch.setattr("chatlore.api.make_llm", lambda: FakeLLM())
+        started = client.post("/library/process", headers=CHANGE)
+        status = finished(client)
+
+        assert started.status_code == 202
+        assert status["stage"] == "done", status
+        assert client.get("/library").json()["graph_pending"] == 0
+        stats = client.get("/stats").json()
+    assert stats["entities"] > 0 and stats["topics"] > 0
+
+
+def test_processing_needs_the_interface_header(home: Path) -> None:
+    with TestClient(create_app(home)) as client:
+        assert client.post("/library/process").status_code == 403
+
+
+def test_the_library_reports_how_much_graph_work_is_left(home: Path) -> None:
+    with TestClient(create_app(home)) as client:
+        info = client.get("/library").json()
+
+    assert info["graph_pending"] == 0  # the fixture's library was fully read
+
+
+def test_an_embedding_payment_stop_fails_loudly_and_keeps_the_import(
+    tmp_path: Path, fixtures: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("chatlore.api.make_embedder", lambda home: FakeEmbedder())
+    monkeypatch.setattr("chatlore.api.make_llm", lambda: FakeLLM())
+
+    def out_of_balance(store: Any, embedder: Any, cache: Any, **kwargs: Any) -> None:
+        raise EmbeddingError(
+            "the OpenRouter embedding key has no balance (HTTP 402): "
+            "add credits at https://openrouter.ai/settings/credits"
+        )
+
+    monkeypatch.setattr("chatlore.imports.sync_embeddings", out_of_balance)
+    with TestClient(create_app(tmp_path / "fresh")) as client:
+        upload(client, fixtures / "claude" / "conversations.json")
+        status = finished(client)
+        stats = client.get("/stats").json()
+
+    assert status["stage"] == "failed"
+    assert "credits" in status["error"]
+    assert "https://openrouter.ai/settings/credits" in status["error"]
+    assert stats["conversations"] == 3  # imported first, so nothing is lost
+
+
+def test_topics_download_as_markdown(
+    home: Path, fixtures: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("chatlore.api.make_llm", lambda: FakeLLM())
+    with TestClient(create_app(home)) as client:
+        upload(client, fixtures / "chatgpt" / "conversations.json")
+        finished(client)
+
+        download = client.get("/topics/export")
+
+    assert download.status_code == 200
+    assert "text/markdown" in download.headers["content-type"]
+    assert "topics.md" in download.headers["content-disposition"]
+    assert download.text.startswith("# Topics")
+    assert "## About" in download.text
+
+
+def test_topics_download_without_topics_is_a_404(home: Path) -> None:
+    with TestClient(create_app(home)) as client:
+        assert client.get("/topics/export").status_code == 404
+
+
+def test_the_markdown_bundle_includes_the_topics(
+    home: Path, fixtures: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("chatlore.api.make_llm", lambda: FakeLLM())
+    with TestClient(create_app(home)) as client:
+        upload(client, fixtures / "chatgpt" / "conversations.json")
+        finished(client)
+        markdown = client.get("/library/export", params={"format": "markdown"})
+
+    with zipfile.ZipFile(io.BytesIO(markdown.content)) as zipped:
+        names = zipped.namelist()
+        report = zipped.read("topics.md").decode("utf-8")
+
+    assert "topics.md" in names
+    assert report.startswith("# Topics")
 
 
 def test_the_library_downloads_as_an_archive_or_markdown(private: TestClient) -> None:
