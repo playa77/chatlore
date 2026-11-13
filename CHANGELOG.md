@@ -22,15 +22,6 @@ setup instructions; use [README.md](README.md) and [docs/models.md](docs/models.
 - OpenRouter embeddings with an isolated embedding key, remote-only configuration
   template for GLM 5.3 Flash and text-embedding-3-small, and model diagnostics.
 - Source security review in `docs/security-review.md`.
-
-### Fixed
-
-- Reject archive conversation IDs that could write outside the library directory.
-- Report missing embedding configuration through the CLI without clearing existing
-  embeddings first.
-
-### Added
-
 - **Explore** in the web interface: the knowledge graph together with the chats it came from,
   as a way into your conversations. Clicking an entity centres the graph on it and shows its
   summary, facts, and chats; clicking a chat opens it beside the graph, with every entity it
@@ -66,15 +57,32 @@ setup instructions; use [README.md](README.md) and [docs/models.md](docs/models.
 - The demo library has facts.
 - A Deploy workflow that puts the hosted demo on a Hugging Face Space, creating it on the first
   run, for every released version and on request. Steps in `docs/hosting.md`.
+- Resume processing in the web interface: `POST /library/process` and a **Resume processing**
+  button in **Your data** finish the knowledge graph for a library whose run stopped early,
+  such as when the model key ran out of credits. `GET /library` reports how many passages are
+  still unread in `graph_pending`.
+- Topics as Markdown: `chatlore export <folder> --markdown` writes `topics.md` next to the
+  conversation files, `GET /topics/export` serves the report alone, and the Topics view has a
+  download link. Guide in `docs/export.md`.
+- `chatlore doctor` confirms the configured keys with the provider's free key endpoint, and
+  `--probe` sends one tiny request to each model to prove the whole path (this spends a
+  little credit). The paid commands also warn when a key is missing and say what runs instead.
 
 ### Changed
 
+- Credit errors are absorbed, not dumped: an out-of-credits answer (HTTP 402) names the
+  remedy — add credits at openrouter.ai/settings/credits — the run keeps everything read so
+  far, and the note says how to resume. Decisions in
+  `docs/decisions/0002-credit-exhaustion-is-absorbed-and-resumable.md`.
 - The extraction prompt is version 2, so the next `chatlore extract` reads every chunk once
   more to find its facts. Until a chunk is read again, its earlier answer still gives its
   entities and relationships, so upgrading never empties the graph.
 
 ### Fixed
 
+- Reject archive conversation IDs that could write outside the library directory.
+- Report missing embedding configuration through the CLI without clearing existing
+  embeddings first.
 - The first search after `chatlore serve` or `chatlore demo` on a new machine no longer hangs
   while the embedding model downloads, which took over three minutes on a slow connection.
   The server loads the model in the background as it starts, a search that comes first

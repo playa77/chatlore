@@ -50,7 +50,9 @@ uv run --locked chatlore doctor
 ```
 
 Check that it reports the two models above, embeddings via `openrouter`, and
-both keys set. Shell environment variables override `.env`. The CLI loads the
+both keys set — and, since it asks the provider, that both keys are accepted.
+`--probe` also sends one tiny request to each model to prove the whole path;
+that spends a little credit. Shell environment variables override `.env`. The CLI loads the
 nearest `.env` in or above its working directory, so keep launching from this
 checkout. Without the template, inherited code defaults still select local
 FastEmbed embeddings and a different chat model.

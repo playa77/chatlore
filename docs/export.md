@@ -63,6 +63,11 @@ Where a conversation branched because a message was edited or regenerated, the
 file holds the branch the conversation ended on, as ChatLore shows it.
 Exporting again into the same folder overwrites the same files.
 
+When the library has topics, the export also writes `topics.md` at the top of
+the folder: every topic's report — summary, findings, and its entities — with
+the largest topic first. The web interface's Markdown download includes it, and
+`GET /topics/export` serves that one file alone.
+
 The files open in any editor or notes app. They are for reading, not for moving
 a library: importing them back would add them as Markdown notes next to the
 original conversations. Use an archive for that.
