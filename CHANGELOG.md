@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- OpenRouter embeddings with an isolated embedding key, remote-only configuration
+  template for GLM 5.3 Flash and text-embedding-3-small, and model diagnostics.
+- Source security review in `docs/security-review.md`.
+
+### Fixed
+
+- Reject archive conversation IDs that could write outside the library directory.
+- Report missing embedding configuration through the CLI without clearing existing
+  embeddings first.
+
+### Added
+
 - **Explore** in the web interface: the knowledge graph together with the chats it came from,
   as a way into your conversations. Clicking an entity centres the graph on it and shows its
   summary, facts, and chats; clicking a chat opens it beside the graph, with every entity it

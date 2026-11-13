@@ -158,6 +158,12 @@ def doctor() -> None:
     table.add_row("data dir", f"{display_path(home)} ({state})")
     table.add_row("store", _describe_store(home))
     table.add_row("model", _describe_llm())
+    provider = os.environ.get("CHATLORE_EMBEDDING_PROVIDER") or "fastembed"
+    model = os.environ.get("CHATLORE_EMBEDDING_MODEL") or (
+        "openai/text-embedding-3-small" if provider == "openrouter" else "BAAI/bge-small-en-v1.5"
+    )
+    key = "API key set" if os.environ.get("CHATLORE_EMBEDDING_API_KEY") else "no API key"
+    table.add_row("embeddings", f"{model} via {provider} ({key})")
     console.print(table)
 
 
@@ -490,11 +496,11 @@ def process(
         table.add_row("chunks total", str(chunks.total))
 
         if embed:
-            if reembed:
-                store.clear_embeddings()
-            embedder = make_embedder(home)
-            pending = chunks.total - store.count_embeddings()
             try:
+                embedder = make_embedder(home)
+                if reembed:
+                    store.clear_embeddings()
+                pending = chunks.total - store.count_embeddings()
                 with (
                     EmbeddingCache(home / "cache" / "embeddings.db") as cache,
                     _progress() as progress,
