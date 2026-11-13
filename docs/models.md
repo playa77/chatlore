@@ -117,3 +117,49 @@ For a richer graph at about four times the cost, set
 URL to a local or third-party server cannot leak it. Use `CHATLORE_LLM_API_KEY`
 for a server that needs its own key. `chatlore doctor` says whether a key is set
 but never prints it.
+
+## This fork: two OpenRouter keys, no local inference
+
+Copy `.env.example` to `.env` in the directory where you launch ChatLore and
+fill in `CHATLORE_LLM_API_KEY` and `CHATLORE_EMBEDDING_API_KEY` with two distinct
+OpenRouter API keys. Never paste keys into chat or commit them. Shell variables
+take precedence over `.env`; run `chatlore doctor` to check the selected models.
+
+The template selects `z-ai/glm-5.3-flash` for extraction and chat and
+`openai/text-embedding-3-small` for passages and semantic search queries. It sets
+reasoning to `default`, leaving the setting to GLM rather than assuming it can
+be disabled. The embedding client uses only its dedicated key, a fixed
+`https://openrouter.ai/api/v1` endpoint, a 60 second request timeout, and no
+automatic retries. Missing keys and remote errors never trigger local inference.
+Startup skips remote embedding warm-up calls. FastEmbed remains installed for
+upstream compatibility; it does not load under this configuration. Without
+`CHATLORE_EMBEDDING_PROVIDER=openrouter`, upstream's local embedding default
+still applies, so keep the configuration in effect for every launch.
+
+Use your library, rather than the shipped demo (whose vectors use a local model):
+
+```bash
+chatlore doctor
+chatlore import path/to/your-export.zip
+chatlore process
+chatlore extract --limit 10 --workers 1
+chatlore serve --host 127.0.0.1
+```
+
+These processing commands spend provider credits. `--limit` bounds extraction
+passages; it is not a total dollar cap or a cap on all enrichment stages. Set
+separate credit limits on the two OpenRouter keys. For a library already embedded
+with another model, `chatlore process --reembed` clears and rebuilds the vectors
+and can incur embedding charges. Back up the library first.
+
+With remote embeddings, passage text and semantic queries leave your machine.
+Extraction sends passages to the LLM; chat sends the question and retrieved
+sources. Library files and caches remain plaintext locally. Do not use the
+Dockerfile for this private setup: it builds a local embedding model and starts
+a public upload-enabled demo. Read `docs/security-review.md` before exposing
+any server or importing untrusted archives.
+
+An OpenRouter API key authenticates ChatLore to OpenRouter. If by BYOK you mean
+OpenRouter's upstream-provider key feature, configure that separately in your
+OpenRouter account; this integration does not provision upstream credentials or
+force provider routing.

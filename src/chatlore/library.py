@@ -69,7 +69,14 @@ class Library:
 
     def path_for(self, conversation: Conversation) -> Path:
         """Return where ``conversation`` is, or would be, stored."""
-        return self.root / conversation.source.value / f"{conversation.id}.json"
+        identifier = conversation.id
+        if any(char in identifier for char in ("/", "\\", "\x00", ":")):
+            raise ValueError("conversation id must be a safe filename component")
+        folder = self.root / conversation.source.value
+        path = folder / f"{identifier}.json"
+        if not path.resolve().is_relative_to(self.root.resolve()):
+            raise ValueError("conversation path must stay inside the library")
+        return path
 
     def add(self, conversation: Conversation) -> AddOutcome:
         """Store ``conversation`` unless an identical copy is already there."""

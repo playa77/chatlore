@@ -54,7 +54,13 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from chatlore import __version__
 from chatlore.archive import export_archive, export_markdown
 from chatlore.chat import MAX_SOURCES, ChatLimits, Context, Source, answer, cited, retrieve
-from chatlore.embeddings import Embedder, EmbeddingError, make_embedder, normalise
+from chatlore.embeddings import (
+    Embedder,
+    EmbeddingError,
+    OpenRouterEmbedder,
+    make_embedder,
+    normalise,
+)
 from chatlore.explore import NotFoundError, Window, conversation_entities, explore, timeline
 from chatlore.facts import facts_about, find_facts
 from chatlore.imports import Imports, safe_relative
@@ -306,7 +312,9 @@ def create_app(
         """Load the embedding model before the first search needs it. The first time
         on a machine that downloads it, which can take minutes on a slow connection."""
         try:
-            embedder().embed_query("warm up")
+            model = embedder()
+            if not isinstance(model, OpenRouterEmbedder):
+                model.embed_query("warm up")
         except EmbeddingError:
             pass  # a search that needs it reports the error
         finally:
@@ -347,6 +355,9 @@ def create_app(
                 yield
             tasks.cancel_scope.cancel()
         await anyio.to_thread.run_sync(imports.shutdown)
+        for model in embedders:
+            if isinstance(model, OpenRouterEmbedder):
+                model.close()
 
     app = FastAPI(
         title="ChatLore",

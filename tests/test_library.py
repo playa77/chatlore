@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from chatlore.library import AddOutcome, Library, SourceStats
 from chatlore.models import ContentPart, Conversation, Message, Role, SourceKind
 
@@ -93,3 +95,15 @@ def test_index_makes_unchanged_checks_cheap_and_survives_loss(tmp_path: Path) ->
     assert rebuilt.add(_conversation("x" * 200_000)) is AddOutcome.UNCHANGED
     assert index.exists()
     assert rebuilt.rebuild_index() == 1
+
+
+@pytest.mark.parametrize(
+    "identifier", ["../../escaped", "/tmp/escaped", r"..\escaped", "C:escaped"]
+)
+def test_conversation_id_cannot_escape_library(tmp_path: Path, identifier: str) -> None:
+    conversation = Conversation(id=identifier, source=SourceKind.CLAUDE, external_id="test")
+    with (
+        Library(tmp_path / "library") as library,
+        pytest.raises(ValueError, match="safe filename"),
+    ):
+        library.add(conversation)

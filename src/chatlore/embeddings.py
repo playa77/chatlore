@@ -18,7 +18,12 @@ import threading
 from array import array
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Protocol, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
+
+import openai
+
+if TYPE_CHECKING:
+    import httpx2
 
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 MODEL_ENV = "CHATLORE_EMBEDDING_MODEL"
@@ -96,8 +101,73 @@ class FastEmbedEmbedder:
         return [float(x) for x in vector]
 
 
+class OpenRouterEmbedder:
+    """Remote embeddings using only the dedicated embedding key; no local fallback.
+
+    See docs/decisions/0001-openrouter-embeddings.md for the credential boundary.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        *,
+        http_client: httpx2.Client | None = None,
+    ) -> None:
+        self.name = model
+        self._client = openai.OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            timeout=60.0,
+            max_retries=0,
+            http_client=http_client,
+        )
+
+    def close(self) -> None:
+        self._client.close()
+
+    def embed_passages(self, texts: Sequence[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        try:
+            response = self._client.embeddings.create(
+                model=self.name, input=list(texts), encoding_format="float"
+            )
+        except openai.APIStatusError as error:
+            # Provider response bodies can echo submitted text. Keep them out of UI/logs.
+            raise EmbeddingError(
+                f"OpenRouter embedding request failed with HTTP {error.status_code}"
+            ) from None
+        except openai.APIConnectionError:
+            raise EmbeddingError("could not reach OpenRouter embeddings") from None
+        rows = sorted(response.data, key=lambda row: row.index)
+        if [row.index for row in rows] != list(range(len(texts))):
+            raise EmbeddingError("OpenRouter returned missing or duplicate embedding indices")
+        vectors = [row.embedding for row in rows]
+        dimensions = {len(vector) for vector in vectors}
+        if (
+            len(dimensions) != 1
+            or 0 in dimensions
+            or any(not math.isfinite(x) for vector in vectors for x in vector)
+        ):
+            raise EmbeddingError("OpenRouter returned invalid embedding vectors")
+        return vectors
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_passages([text])[0]
+
+
 def make_embedder(home: Path) -> Embedder:
-    """Return the configured embedder, keeping model files under ``home``."""
+    """Select the provider explicitly; remote failures never load a local model."""
+    provider = (os.environ.get("CHATLORE_EMBEDDING_PROVIDER") or "fastembed").strip().lower()
+    if provider == "openrouter":
+        key = os.environ.get("CHATLORE_EMBEDDING_API_KEY")
+        if not key:
+            raise EmbeddingError("set CHATLORE_EMBEDDING_API_KEY for OpenRouter embeddings")
+        model = os.environ.get(MODEL_ENV) or "openai/text-embedding-3-small"
+        return OpenRouterEmbedder(model, key)
+    if provider != "fastembed":
+        raise EmbeddingError("CHATLORE_EMBEDDING_PROVIDER must be openrouter or fastembed")
     model = os.environ.get(MODEL_ENV) or DEFAULT_MODEL
     return FastEmbedEmbedder(model, cache_dir=home / "cache" / "models")
 
