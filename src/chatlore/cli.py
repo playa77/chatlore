@@ -971,7 +971,7 @@ def mcp() -> None:
     create_server().run()
 
 
-_DOCS = "https://github.com/cl0ver012/chatlore/blob/main/docs"
+_DOCS = "https://github.com/playa77/chatlore/blob/main/docs"
 
 
 @app.command()
@@ -983,11 +983,12 @@ def demo(
         int, typer.Option("--port", min=1, max=65535, help="Port for the web interface.")
     ] = 8000,
 ) -> None:
-    """Try ChatLore on a made-up library, with no export and no API key.
+    """Try the inherited demo library, built for local FastEmbed embeddings.
 
     Loads invented conversations, with their knowledge graph already built,
     into ~/.chatlore-demo and opens the web interface on them. Your own library
-    is not touched.
+    is not touched. This is not the fork's remote-only onboarding path; see
+    docs/hosting.md for inherited behavior.
     """
     home = demo_home()
     os.environ[HOME_ENV] = str(home)
@@ -1045,7 +1046,7 @@ def demo(
 
     console.print()
     try:
-        with console.status("Loading the embedding model (a 65 MB download the first time)"):
+        with console.status("Preparing the configured embedding model"):
             embedder.embed_query("warm up")
     except EmbeddingError as error:
         console.print(f"[red]{error}[/red]")

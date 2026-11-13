@@ -1,75 +1,68 @@
-# Contributing to ChatLore
+# Contributing to this fork
 
-Thanks for taking a look. The project is early, so the most useful
-contributions right now are issues that describe real export files that fail
-to import, and pull requests that follow the roadmap in the README.
+Work against [playa77/chatlore](https://github.com/playa77/chatlore). The current
+phase is local-machine use with SQLite and two OpenRouter keys, as described in
+[the README](README.md). Hosting hardening remains deferred in the
+[security review](docs/security-review.md).
 
 ## Development setup
 
-```bash
-uv sync
-uv run chatlore --help
-```
-
-Run the same checks CI runs before opening a pull request:
+Requirements: Git and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
-uv run pytest
+git clone https://github.com/playa77/chatlore.git
+cd chatlore
+uv sync --locked --extra anthropic --extra gemini
+uv run --locked chatlore --help
 ```
 
-`uv run ruff format .` fixes formatting in place.
+The extras provide the SDKs exercised by CI; they do not select those providers
+or enable local inference. `uv sync` installs the development dependency group
+by default. Ordinary users can omit the extras. Keep dependency resolution
+pinned with `--locked`; use `uv lock` intentionally when changing dependencies.
 
-Install the pre-commit hooks once so formatting and lint run automatically on
-every commit:
+For application use, copy `.env.example` to `.env` once and fill in keys locally.
+No real keys or live inference are needed for the standard test suite. Tests use
+synthetic fixtures and mocked clients; optional FalkorDB integration cases need
+a separate server and are skipped when it is absent.
+
+## Checks
+
+Run the same Python checks configured in CI:
 
 ```bash
-uv run pre-commit install
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked mypy
+uv run --locked pytest
 ```
 
-If uv cannot reach the network on your machine, a plain virtual environment
-works too and the checks are the same:
+`uv run --locked ruff format .` applies formatting. The optional pre-commit hooks
+can be installed with `uv run --locked pre-commit install`.
 
-```bash
-python3.12 -m venv .venv
-.venv/Scripts/python -m pip install -e . --group dev   # Windows
-# .venv/bin/python -m pip install -e . --group dev     # macOS / Linux
-```
+CI also defines package, inherited demo/Docker and FalkorDB jobs. Their existence
+does not establish that hosted deployment is configured or approved for this
+fork. Do not run live model tests with developer-agent credentials.
 
-## Branches
+## Branches and pull requests
 
-- `main` is protected. Every change lands through a pull request with green CI.
-- Branch names: `feat/<topic>`, `fix/<topic>`, `docs/<topic>`, `chore/<topic>`.
+Use `feat/<topic>`, `fix/<topic>`, `docs/<topic>` or `chore/<topic>` branches and
+open pull requests against this fork's `main`. Use Conventional Commits, for
+example `docs: refresh fork installation and model setup`. Keep each change
+focused, update `CHANGELOG.md` under Unreleased, and fill in the repository's
+PR template with checks actually run and relevant limitations.
 
-## Commits
+Do not assume branch protection, squash-only merges, PyPI publishing or hosting
+credentials have been configured merely because inherited workflows exist.
+See [releasing.md](docs/releasing.md) before any release work.
 
-Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
+## Privacy and documentation
 
-```
-feat(importers): add ChatGPT export parser
-fix(store): handle empty conversations on upsert
-docs: describe the Gemini Takeout format
-```
+Never commit real chat exports, databases or keys. The `.gitignore` excludes
+`exports/`, `.chatlore/` and `.env` files; verify staged paths before committing.
+Fixtures under `tests/fixtures/` are synthetic.
 
-Keep one logical change per commit. The body explains why, not what. The only
-footer used is `Closes #<issue>` when a commit resolves an issue.
-
-## Pull requests
-
-- Keep a pull request small enough to review in about twenty minutes.
-- Fill in the pull request template: summary, changes, how it was tested.
-- Squash merge is used, so the pull request title becomes the commit message
-  on `main` and must itself be a valid Conventional Commit line.
-
-## Privacy
-
-Never commit real chat exports, databases, or API keys. Test fixtures are
-synthetic and live under `tests/fixtures/`. The `.gitignore` already excludes
-`exports/`, `.chatlore/`, and `.env` files.
-
-## Releases
-
-Maintainers release by pushing a version tag; the steps are in
-[docs/releasing.md](docs/releasing.md).
+Document installation from this fork, use checkout-based command examples, and
+distinguish the `.env.example` configuration from inherited code defaults.
+Preserve upstream attribution and historical changelog entries. Avoid carrying
+upstream benchmarks forward as performance or pricing promises for this fork.

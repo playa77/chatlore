@@ -93,7 +93,7 @@ def test_a_public_server_limits_questions_and_says_why(public: TestClient) -> No
     assert events[2] == ["sources", "error"]
     refused = public.post("/chat", json={"question": "Which train goes to Sintra?"}).text
     assert "2 questions an hour for each visitor" in refused
-    assert "pip install chatlore" in refused
+    assert "https://github.com/playa77/chatlore#install-this-fork" in refused
 
 
 def test_questions_that_find_nothing_are_not_counted(tmp_path: Path) -> None:

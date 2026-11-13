@@ -1,12 +1,14 @@
 # The web interface
 
 ```bash
-chatlore serve        # then open http://127.0.0.1:8000
+uv run --locked chatlore serve        # then open http://127.0.0.1:8000
 ```
 
 `chatlore serve` hosts a web interface next to the REST API. It is plain HTML,
-CSS, and JavaScript served from the package: no build step, no CDN, nothing
-loaded from the internet, so it works offline like the rest of ChatLore. It
+CSS, and JavaScript served from the checkout: no frontend build step or CDN.
+Browsing existing data and word search are local. With this fork's configuration,
+semantic search, chat and upload processing call OpenRouter and need internet
+access and the corresponding keys (see [models.md](models.md)). It
 has a light and a dark theme: it follows the system's setting until you choose
 one with the toggle at the bottom of the sidebar, and remembers that choice.
 
@@ -43,15 +45,17 @@ one with the toggle at the bottom of the sidebar, and remembers that choice.
   step with its progress: importing, preparing search, reading with the language
   model, summarising, linking names for the same thing, and topics. It then
   says what came from where, and lists the files it skipped with the reason.
-  Without a model key, everything but the knowledge graph is built. When it is
-  done, **Show the library** reloads the page on it.
+  Embedding requires the dedicated embedding key; if it is absent, the imported
+  conversations may remain but processing fails. Without an LLM key, graph
+  enrichment is skipped with a note after successful embedding. These steps
+  can spend credits automatically. When done, **Show the library** reloads it.
 - **ChatLore archive** downloads the whole library, graph and caches included,
   to import anywhere; **Markdown** downloads one readable file per conversation.
   See [export.md](export.md).
 
-On your own machine the upload goes into the library itself. On a public server
-that takes uploads, it goes into a private library of the visitor's own; see
-[hosting.md](hosting.md#visitors-own-data).
+On your own machine the upload goes into the selected library itself. Keep the
+server bound to loopback for this phase. Inherited public-mode behavior is
+documented separately in [hosting.md](hosting.md); public hosting is deferred.
 
 ## Exploring your conversations through the graph
 

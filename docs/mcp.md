@@ -1,138 +1,99 @@
-# Using ChatLore from AI assistants (MCP)
+# Using this fork from local AI assistants (MCP)
+
+Install and configure [this fork](../README.md#install-this-fork) first. Import
+and process the library; extraction adds the entities, facts and topics that
+the graph tools use. Run the server from the checkout so it reads the same
+`.env` as your CLI:
 
 ```bash
-chatlore mcp          # started by the assistant, not by hand
+uv --directory /absolute/path/to/chatlore run --locked chatlore mcp
 ```
 
-`chatlore mcp` is an [MCP](https://modelcontextprotocol.io) server. Once an
-assistant such as Claude Desktop, Claude Code, or Cursor knows about it, the
-assistant can look things up in your past conversations while you talk to it:
-"how did I set up Litestream last time?", "what did I decide about the JR Pass?",
-"what do I know about Proxmox?". It finds the passages, answers with its own
-model, and cites the conversations they came from.
+The assistant normally launches this command. It communicates over standard
+input/output and opens no network listener. Tools read the library without
+editing it, but semantic retrieval sends queries to OpenRouter and needs
+`CHATLORE_EMBEDDING_API_KEY`. The assistant uses its own model to answer, so the
+MCP server does not use the ChatLore LLM key. Returned conversation text goes
+to the assistant and its model provider.
 
-The server runs on your machine and talks to the assistant over standard input
-and output, so it opens no port. It only reads the library. It needs no model key:
-the assistant's model writes the answers, and only the local embedding model runs
-here. Keep in mind that whatever the tools return is sent to the model the
-assistant uses, as with anything else you paste into it.
+## Configure a client
 
-The library should be imported and processed first; `chatlore extract` adds the
-entities and topics that the `entity` and `topic` tools use.
+Use an absolute checkout path and an absolute path to `uv` if the desktop app
+cannot find it on `PATH` (`Get-Command uv` in PowerShell or `command -v uv` in a
+POSIX shell). JSON paths on Windows need escaped backslashes or forward slashes.
 
-## Setting it up
-
-The assistant starts `chatlore mcp` itself, so it needs to find the `chatlore`
-command. Either install it with `uv tool install chatlore`, or run it from a
-clone with `uv --directory /path/to/chatlore run chatlore mcp`. Desktop apps do
-not always see the same `PATH` as your terminal; if one cannot start the server,
-give the full path to `chatlore` (`where chatlore` on Windows, `which chatlore`
-elsewhere).
-
-The library is the default one (`~/.chatlore`, or `CHATLORE_HOME`). To use
-another, pass `--home` before `mcp`, or set `CHATLORE_HOME` in the server's
-environment as below.
-
-**Claude Code**
-
-```bash
-claude mcp add chatlore -- chatlore mcp
-claude mcp add chatlore -e CHATLORE_HOME=/path/to/library -- chatlore mcp   # another library
-```
-
-Add `--scope user` to have it in every project. To try it on the made-up
-library from `chatlore demo` first:
-
-```bash
-claude mcp add chatlore-demo -- chatlore --home ~/.chatlore-demo mcp
-```
-
-**Claude Desktop.** Settings, Developer, Edit Config opens
-`claude_desktop_config.json`. Add the server and restart Claude Desktop:
-
-```json
-{
-  "mcpServers": {
-    "chatlore": {
-      "command": "chatlore",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-From a clone instead:
+For Claude Desktop, add this entry through its developer configuration and
+restart the client. Cursor uses the same `mcpServers` shape in its MCP settings:
 
 ```json
 {
   "mcpServers": {
     "chatlore": {
       "command": "uv",
-      "args": ["--directory", "/path/to/chatlore", "run", "chatlore", "mcp"],
-      "env": { "CHATLORE_HOME": "/path/to/library" }
+      "args": ["--directory", "/absolute/path/to/chatlore", "run", "--locked", "chatlore", "mcp"],
+      "env": { "CHATLORE_HOME": "/absolute/path/to/library" }
     }
   }
 }
 ```
 
-**Cursor.** The same `mcpServers` entry goes in `~/.cursor/mcp.json` for every
-project, or `.cursor/mcp.json` for one.
+Omit `CHATLORE_HOME` to use `~/.chatlore`. Keep credentials in the checkout's
+ignored `.env`, not in committed client configuration. Client environment
+variables override `.env`; remove conflicting model/provider variables from
+the launcher. Changing the library directory does not select a different `.env`.
 
-**Other clients.** Any MCP client that starts local servers works the same way:
-the command is `chatlore` with the argument `mcp`. ChatGPT only connects to
-servers on the internet, so it uses the hosted demo, below.
-
-## Over HTTP
-
-`chatlore serve` serves the same tools at `/mcp` over streamable HTTP, for
-assistants that connect to a URL instead of starting a command:
+For Claude Code:
 
 ```bash
-chatlore serve                                                        # then:
+claude mcp add chatlore -- uv --directory /absolute/path/to/chatlore run --locked chatlore mcp
+```
+
+Use the client's user/project scope option as appropriate. For another library,
+put `--home /absolute/path/to/library` before `mcp` in the server arguments.
+Other MCP clients that launch local processes can use the same command.
+
+## Local HTTP transport
+
+```bash
+uv run --locked chatlore serve --host 127.0.0.1
+```
+
+The tools are also at `http://127.0.0.1:8000/mcp` over streamable HTTP. For
+example, in a second terminal:
+
+```bash
 claude mcp add --transport http chatlore http://127.0.0.1:8000/mcp
 ```
 
-On your machine, `/mcp` only answers requests addressed to `127.0.0.1` or
-`localhost`, so websites cannot reach it through your browser.
-
-The hosted demo serves its made-up library the same way at its address followed
-by `/mcp`, with no authentication (see [hosting.md](hosting.md)):
-
-- **ChatGPT**: in developer mode, add a connector with that URL and no
-  authentication.
-- **Claude**: add it as a custom connector, or in Claude Code with
-  `claude mcp add --transport http chatlore-demo <url>`.
-- **Cursor**: an `mcpServers` entry with `"url": "<url>"` instead of a command.
-
-Never put your own library on the internet this way: anyone with the address
-could read it.
+MCP has transport hostname protections in private mode. Ordinary REST routes
+have different protections; see [the security review](security-review.md).
+Neither transport adds a login. Public hosting and remote assistant connectors
+are outside this phase; no hosted demo URL is maintained for this fork.
 
 ## Tools
 
 | Tool | What it returns |
 |---|---|
-| `ask_context` | The passages that best answer a question, numbered for citation, with notes on the entities and topics it names. The same retrieval as `chatlore ask`, without the answer. |
-| `search` | Messages matching words, meaning, and the entities they mention, optionally from one source. |
-| `conversation` | A conversation's messages. Long ones come in parts of about 30,000 characters: from the start, or around a message found by the other tools. |
-| `entity` | What the graph knows about a person, project, tool, or place: summary, other names, topic, relationships, facts, and the conversations it came up in. |
-| `facts` | Decisions, preferences, plans, and findings from the conversations, newest first or matching some words, each with the conversation and message that said it. |
-| `topics` | The topics, largest first, or those whose report mentions some words. |
-| `topic` | A topic's report: summary, findings, and every entity in it. |
+| `ask_context` | Numbered passages relevant to a question plus graph context; no generated answer |
+| `search` | Messages ranked by words, meaning and entities, optionally filtered by source |
+| `conversation` | Conversation messages, in parts of about 30,000 characters |
+| `entity` | Summary, other names, topic, relationships, facts and source conversations |
+| `facts` | Decisions, preferences, plans and findings, with source messages |
+| `topics` | Topics by size or matching words |
+| `topic` | One topic's report and entities |
 
-Results are plain text and carry the ids that the other tools take, so an
-assistant can go from a passage to its conversation, or from an entity to its
-topic. Every tool is marked read-only. The server also tells the assistant when
-to use it: when you refer to something you discussed or decided before.
+Results include IDs for follow-up calls. Read-only annotations describe library
+writes; they do not mean offline operation or zero embedding cost. Query
+embeddings are not saved in the passage cache.
 
-## Checking it
-
-`chatlore mcp` prints nothing: its output is the protocol. The
-[MCP Inspector](https://github.com/modelcontextprotocol/inspector) lists the
-tools and calls them by hand:
+## Checking the configuration
 
 ```bash
-npx @modelcontextprotocol/inspector chatlore mcp
+uv --directory /absolute/path/to/chatlore run --locked chatlore doctor
 ```
 
-The first call that searches by meaning loads the embedding model, which takes a
-few seconds; later calls are quick.
+Confirm the correct library and embeddings via `openrouter`. The MCP process's
+stdout is the protocol, so it does not print an interactive prompt. If retrieval
+fails, check the embedding key, selected model, network access and whether the
+library's vectors were built with that same model. Avoid using the inherited
+demo library with the remote model configuration.

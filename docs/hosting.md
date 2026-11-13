@@ -1,139 +1,60 @@
-# Hosting the demo
+# Hosting status and inherited demo infrastructure
 
-```bash
-docker build -t chatlore-demo .
-docker run -p 7860:7860 -e OPENROUTER_API_KEY=sk-or-... chatlore-demo
-```
+This phase runs on the owner's machine using the CLI or
+`uv run --locked chatlore serve --host 127.0.0.1`. Follow the
+[README](../README.md) for installation and the two-key OpenRouter setup.
+Public deployment is deferred; this fork does not document an active hosted
+demo or promise that any hosting account, secret or release integration exists.
 
-The image in the repository's `Dockerfile` is the hosted demo: the made-up
-library from `chatlore demo`, served to anyone who opens it. Visitors get the
-web interface at `/`, the REST API with its docs at `/docs`, and the MCP server
-at `/mcp`, so they can connect ChatGPT, Claude, or another assistant to it
-without installing anything.
+## What the existing Dockerfile does
 
-The demo library and the embedding model are built into the image, so a
-container answers as soon as it starts. It used about 400 MB of memory once
-searches had loaded the embedding model; give it 1 GB to be safe. It listens on
-port 7860, or on `$PORT` when the host sets it.
+The inherited image is a public demonstration, not a private remote-only
+installation. It:
 
-## The model key
+- installs this checkout's source and locked dependencies;
+- loads a synthetic library into the container user's `~/.chatlore-demo`;
+- loads/downloads a local FastEmbed model during the build;
+- starts `serve --public --uploads --host 0.0.0.0` on port 7860 or `$PORT`;
+- serves the web interface, REST API and MCP, including public uploads.
 
-Search, conversations, topics, the graph, and every MCP tool work without a
-key. Only asking in the web interface or through `POST /chat` needs a language
-model, and that is paid for with the host's key. Pass it as a secret, never in
-the image:
+The repository `.env` is not copied into this image. Merely building the image
+does not reproduce the configured OpenRouter embedding setup. Substituting a
+remote embedding provider at runtime also needs a plan for the demo's existing
+local-model vectors. Use the checkout-based local setup for this phase.
 
-| Variable | Meaning |
-|---|---|
-| `OPENROUTER_API_KEY` | Key for OpenRouter, the default provider. |
-| `CHATLORE_LLM_MODEL`, `CHATLORE_LLM_BASE_URL` | Another model or provider; see [models.md](models.md). |
+## Existing public-mode controls
 
-Without a key, asking says that a key is needed and everything else works.
-OpenRouter lets a key have a credit limit; give the demo's key one.
+These describe inherited behavior, not a recommendation to expose the server:
 
-## Public mode
+- `--public` enables LLM question quotas: 10 per visitor per hour and 300 per
+  day by default (`--questions-per-hour`, `--questions-per-day`). These do not
+  cover all embedding calls or upload enrichment, and do not cap dollar spend.
+- Public mode trusts forwarded IP headers from any proxy source. It needs a
+  controlled proxy boundary before visitor-IP quotas can be relied on.
+- `--uploads` gives visitors cookie-associated temporary SQLite libraries.
+  `--keep-hours` defaults to 24; expiry is swept periodically. Bearer cookies
+  are not user accounts or a full authentication system. MCP uses the server's
+  library rather than the visitor's cookie-associated one.
+- Upload size defaults to 200 MB (`--max-upload-mb`). Ordinary unpacking has
+  size/count/depth checks, with gaps for some formats and nested containers.
+- Upload processing embeds and enriches with the server's model credentials.
+  `--extract-limit` caps newly extracted passages per upload, not total model
+  calls, embedding volume, number of uploads or provider cost.
+- A custom header is required for uploads/deletions. This does not authenticate
+  API clients. Public MCP disables its private hostname restriction.
 
-The image runs `chatlore serve --public`. Anyone can run the same on a library
-they are happy for anyone to read:
+The current [security review](security-review.md) records authentication,
+hostname validation, spending and input-handling work to revisit before hosting.
 
-```bash
-chatlore --home ~/.chatlore-demo serve --public --host 0.0.0.0 --port 7860
-```
+## Inherited deployment workflow
 
-`--public` is for a server behind a proxy on the internet, such as the HTTPS
-front of a hosting service:
+`.github/workflows/deploy.yml` runs on version tags or manual dispatch, with
+its job conditional on a nonempty repository variable `HF_SPACE`. It uses
+`HF_TOKEN`, the `demo` GitHub environment and Hugging Face's CLI to create a
+public Docker Space and upload build files. Those settings must be explicitly
+configured for this fork; their presence in YAML does not establish deployment.
+No current hosting prices, resource guarantees or retention promises are made.
 
-- Questions that reach the language model are limited: 10 an hour for each
-  visitor and 300 a day for everyone together, by default. Change them with
-  `--questions-per-hour` and `--questions-per-day`. A question that finds no
-  passages is not counted, since it never reaches the model. When a limit is
-  reached, the visitor is told why and how to install ChatLore instead.
-- Visitors are told apart by the address the proxy reports, from
-  `X-Forwarded-For`. Without a proxy in front, visitors could claim any address,
-  but the daily limit still holds.
-- `/mcp` accepts requests for any host name. A private server only answers
-  requests addressed to this machine, which keeps websites from reaching it
-  through a visitor's browser.
-- The web interface says it is a demo, and `/health` reports `"public": true`.
-
-The server's library is only ever read. Never serve your own library this way:
-anyone who finds the address can read every conversation in it.
-
-## Visitors' own data
-
-The image also runs with `--uploads`, which lets visitors try ChatLore on their
-own conversations:
-
-```bash
-chatlore --home ~/.chatlore-demo serve --public --uploads --host 0.0.0.0 --port 7860
-```
-
-- A visitor who uploads an export under **Your data** gets a library of their
-  own, and everything they then see, search, and ask is theirs alone. Everyone
-  else still sees the server's library.
-- The library is tied to the visitor's browser by a random token in a cookie
-  (HttpOnly; over HTTPS also Secure, SameSite=None, and Partitioned, so it works
-  when another site shows the demo in a frame, as a Hugging Face Space's page
-  does, kept apart for each such site). Its folder is named after a
-  hash of the token, so the server's files do not give the token away.
-- It is deleted after 24 hours, or `--keep-hours`, and at once when the visitor
-  chooses **Delete my library**; an import still running is stopped first. The
-  server looks for expired libraries every ten minutes. They are kept in
-  `~/.chatlore-spaces`, or `--spaces-dir`, each with its graph in its own SQLite
-  file, even when the server's library is on FalkorDB.
-- Uploads are imported one at a time, so the server keeps answering while one
-  runs, and each visitor has one import at a time. An upload may be up to
-  200 MB, or `--max-upload-mb`; a zip may unpack to at most 2 GB of text.
-- Every change (an upload, a deletion) must carry the header the web interface
-  sends, `X-ChatLore: 1`, so another website cannot make a visitor's browser
-  upload or delete.
-- Building the knowledge graph from an upload reads all of it with the
-  language model on the server's key, as `chatlore extract` does locally, so a
-  large export costs as much as extracting it at home. `--extract-limit` caps
-  how many passages of each upload the model reads; the rest stays searchable.
-  The dialog tells visitors that their conversations go to that model.
-- Visitors download their library as a ChatLore archive or as Markdown.
-
-Assistants connected over `/mcp` see the server's library, since they carry no
-visitor's cookie.
-
-## Where to host it
-
-Any service that builds and runs a Dockerfile from a Git repository works, and
-gives the container an HTTPS address. ChatGPT only connects to HTTPS.
-
-### Hugging Face Spaces
-
-The repository deploys the demo to a [Hugging Face Space](https://huggingface.co/docs/hub/spaces-sdks-docker),
-which is free on the basic CPU hardware (2 vCPUs, 16 GB of memory), with the
-workflow in `.github/workflows/deploy.yml`:
-
-1. Create a Hugging Face [access token](https://huggingface.co/settings/tokens)
-   with write access, and add it to the GitHub repository as the secret
-   `HF_TOKEN` (Settings → Secrets and variables → Actions).
-2. Add the repository variable `HF_SPACE` with the Space's name, such as
-   `your-name/chatlore`, on the same page.
-3. Run the **Deploy** workflow from the Actions tab. It creates the Space on the
-   first run and uploads the Dockerfile with what it builds; the Space then
-   builds the image and starts it, which takes a few minutes. Every version
-   tagged afterwards is deployed the same way.
-4. In the Space's settings, add the secret `OPENROUTER_API_KEY` for asking, with
-   a credit limit on the key. The Space restarts with it.
-
-The demo is then at `https://huggingface.co/spaces/<owner>/<name>`, and on its
-own at `https://<owner>-<name>.hf.space`, which is the address to give
-assistants: `https://<owner>-<name>.hf.space/mcp`.
-
-A free Space sleeps after two days without visitors and wakes when someone
-opens it. Its disk is emptied whenever it restarts, which also deletes
-visitors' libraries early; the demo library is in the image and comes back.
-
-CI builds the image on every pull request, starts it, and checks the web
-interface, the API, and a tool call over MCP. It then uploads an export as a
-visitor, waits for the import, checks that only that visitor sees it, downloads
-it, and deletes it.
-
-## Connecting assistants to it
-
-The MCP endpoint is the demo's address followed by `/mcp`, with no
-authentication. See [mcp.md](mcp.md#over-http) for each assistant.
+The Deploy workflow and the Docker CI job remain inherited infrastructure.
+This documentation change does not run them, alter their triggers or authorize
+a deployment. Reassess their configuration when the hosting phase begins.

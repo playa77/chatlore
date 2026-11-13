@@ -8,7 +8,8 @@ to ``anthropic`` or ``gemini`` and their optional SDKs installed
 (``chatlore.llm_anthropic``, ``chatlore.llm_gemini``). Anything with the
 ``LLM`` shape can replace the client.
 
-Importing and searching never need a model. Only extraction and chat do.
+CLI import and word search need no model. Extraction and chat use this LLM
+client; semantic retrieval uses the separately configured embedding client.
 """
 
 from __future__ import annotations
@@ -328,8 +329,8 @@ def make_llm() -> ClosableLLM:
     settings = llm_settings()
     if settings.api_key is None and settings.is_openrouter:
         raise LLMError(
-            f"no API key for OpenRouter. Set {OPENROUTER_KEY_ENV}, or point "
-            f"{BASE_URL_ENV} at a local server such as http://localhost:11434/v1"
+            f"no API key for OpenRouter. Set {API_KEY_ENV} "
+            f"(or the {OPENROUTER_KEY_ENV} fallback); see docs/models.md"
         )
     if settings.provider in PROVIDER_DEFAULTS:
         return _provider_llm(settings)
@@ -353,8 +354,7 @@ def _provider_llm(settings: LLMSettings) -> ClosableLLM:
             from chatlore.llm_gemini import GeminiLLM as Client  # type: ignore[assignment]
     except ImportError as error:
         raise LLMError(
-            f"{name} needs its SDK: pip install 'chatlore[{name}]' "
-            f"(or uv tool install 'chatlore[{name}]')"
+            f"{name} needs its SDK: from this fork's checkout run uv sync --locked --extra {name}"
         ) from error
     return Client(
         settings.model, settings.api_key, base_url=settings.base_url, reasoning=settings.reasoning

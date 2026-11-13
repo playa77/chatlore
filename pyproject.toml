@@ -46,10 +46,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/cl0ver012/chatlore"
-Repository = "https://github.com/cl0ver012/chatlore"
-Issues = "https://github.com/cl0ver012/chatlore/issues"
-Changelog = "https://github.com/cl0ver012/chatlore/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/playa77/chatlore"
+Repository = "https://github.com/playa77/chatlore"
+Issues = "https://github.com/playa77/chatlore/issues"
+Changelog = "https://github.com/playa77/chatlore/blob/main/CHANGELOG.md"
 
 [project.scripts]
 chatlore = "chatlore.cli:run"
